@@ -287,6 +287,38 @@ try {
 }
 ```
 
+### 4. Async Middleware Must Forward Errors
+Throwing inside an `async` middleware causes an unhandled promise rejection and bypasses Express' error stack, which can crash the server.
+
+**❌ Bad:**
+```typescript
+export const validate = (validations: ValidationChain[]) => {
+  return async (req, _res, next) => {
+    await Promise.all(validations.map((validation) => validation.run(req)));
+    throw new ValidationError('Validation failed');
+  };
+};
+```
+
+**✅ Good:**
+```typescript
+export const validate = (validations: ValidationChain[]) => {
+  return async (req, _res, next) => {
+    try {
+      await Promise.all(validations.map((validation) => validation.run(req)));
+      return next(new ValidationError('Validation failed'));
+    } catch (error) {
+      return next(error);
+    }
+  };
+};
+```
+
+**Guidelines:**
+- Always wrap asynchronous middleware logic in `try/catch` and call `next(error)`.
+- Never rely on `throw` bubbling out of an async middleware; Express won't capture it.
+- Shared middleware (validators, rate limiters, etc.) must handle their own errors to protect every route that uses them.
+
 ---
 
 ## API Documentation

@@ -97,11 +97,11 @@ router.post('/register', validate(authValidation.register), authController.regis
  *               email:
  *                 type: string
  *                 format: email
- *                 example: admin@trio.com
+ *                 example: zaeem@trio.com
  *               password:
  *                 type: string
  *                 format: password
- *                 example: SecurePass123!
+ *                 example: password123
  *     responses:
  *       200:
  *         description: Login successful
@@ -243,10 +243,10 @@ router.post('/logout', authenticate, authController.logout);
  *           schema:
  *             type: object
  *             required:
- *               - currentPassword
+ *               - oldPassword
  *               - newPassword
  *             properties:
- *               currentPassword:
+ *               oldPassword:
  *                 type: string
  *                 format: password
  *                 example: OldPass123!

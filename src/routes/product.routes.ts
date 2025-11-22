@@ -41,7 +41,7 @@ router.use(authenticate);
  *         name: search
  *         schema:
  *           type: string
- *         description: Search in product name, description, or SKU
+ *         description: Search in product name, title, author, description, or SKU
  *       - in: query
  *         name: section
  *         schema:
@@ -49,10 +49,25 @@ router.use(authenticate);
  *           enum: [CAFE, FLOWERS, BOOKS]
  *         description: Filter by section
  *       - in: query
- *         name: category
+ *         name: cafeCategory
  *         schema:
  *           type: string
- *         description: Filter by category
+ *         description: Filter by cafe category (when section=CAFE)
+ *       - in: query
+ *         name: author
+ *         schema:
+ *           type: string
+ *         description: Filter by author (when section=BOOKS)
+ *       - in: query
+ *         name: genre
+ *         schema:
+ *           type: string
+ *         description: Filter by genre (when section=BOOKS)
+ *       - in: query
+ *         name: arrangementType
+ *         schema:
+ *           type: string
+ *         description: Filter by arrangement type (when section=FLOWERS)
  *       - in: query
  *         name: isActive
  *         schema:
@@ -77,7 +92,7 @@ router.use(authenticate);
  *         name: sortBy
  *         schema:
  *           type: string
- *           enum: [name, price, stock, createdAt, updatedAt]
+ *           enum: [price, stockQuantity, createdAt, updatedAt]
  *           default: createdAt
  *         description: Sort field
  *       - in: query
@@ -141,18 +156,11 @@ router.get('/', validate(productValidation.list), productController.listProducts
  *           schema:
  *             type: object
  *             required:
- *               - name
+ *               - section
  *               - sku
  *               - price
- *               - stock
- *               - section
+ *               - stockQuantity
  *             properties:
- *               name:
- *                 type: string
- *                 example: Espresso Blend Coffee
- *               description:
- *                 type: string
- *                 example: Rich and smooth espresso blend
  *               sku:
  *                 type: string
  *                 example: CAFE-ESP-001
@@ -162,43 +170,168 @@ router.get('/', validate(productValidation.list), productController.listProducts
  *               compareAtPrice:
  *                 type: number
  *                 example: 19.99
- *               cost:
+ *               costPrice:
  *                 type: number
  *                 example: 8.50
- *               stock:
+ *               stockQuantity:
  *                 type: integer
  *                 example: 100
+ *               trackQuantity:
+ *                 type: boolean
+ *                 example: true
+ *               continueSellingOutOfStock:
+ *                 type: boolean
+ *                 example: false
  *               section:
  *                 type: string
  *                 enum: [CAFE, FLOWERS, BOOKS]
  *                 example: CAFE
- *               category:
- *                 type: string
- *                 example: Coffee Beans
  *               tags:
  *                 type: array
  *                 items:
  *                   type: string
  *                 example: [organic, fair-trade]
- *               isActive:
- *                 type: boolean
- *                 example: true
- *               isFeatured:
- *                 type: boolean
- *                 example: false
- *               weight:
- *                 type: number
- *                 example: 250
- *               weightUnit:
+ *               collections:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 example: [limited-run]
+ *               status:
  *                 type: string
- *                 enum: [KG, G, LB, OZ]
- *                 example: G
- *               dimensions:
+ *                 enum: [ACTIVE, DRAFT]
+ *                 example: DRAFT
+ *               cafeAttributes:
  *                 type: object
- *                 example: {length: 10, width: 5, height: 15}
- *               metadata:
+ *                 description: Required when section is CAFE. Contains cafe-specific product details.
+ *                 required:
+ *                   - name
+ *                   - category
+ *                 properties:
+ *                   name:
+ *                     type: string
+ *                     example: Espresso Blend Coffee
+ *                   description:
+ *                     type: string
+ *                     example: Rich and smooth espresso blend
+ *                   category:
+ *                     type: string
+ *                     example: Coffee Beans
+ *                   origin:
+ *                     type: string
+ *                     example: Colombia
+ *                   roastLevel:
+ *                     type: string
+ *                     example: Medium
+ *                   caffeineContent:
+ *                     type: string
+ *                     example: High
+ *                   size:
+ *                     type: string
+ *                     example: 250g
+ *                   temperature:
+ *                     type: string
+ *                     example: Hot
+ *                   allergens:
+ *                     type: array
+ *                     items:
+ *                       type: string
+ *                     example: [nuts]
+ *                   calories:
+ *                     type: integer
+ *                     example: 150
+ *               flowersAttributes:
  *                 type: object
- *                 example: {origin: Colombia}
+ *                 description: Required when section is FLOWERS. Contains flower-specific product details.
+ *                 required:
+ *                   - name
+ *                   - arrangementType
+ *                 properties:
+ *                   name:
+ *                     type: string
+ *                     example: Spring Bouquet
+ *                   description:
+ *                     type: string
+ *                     example: Beautiful arrangement of seasonal spring flowers
+ *                   arrangementType:
+ *                     type: string
+ *                     example: Bouquet
+ *                   occasion:
+ *                     type: string
+ *                     example: Birthday
+ *                   colors:
+ *                     type: array
+ *                     items:
+ *                       type: string
+ *                     example: [red, pink, white]
+ *                   flowerTypes:
+ *                     type: array
+ *                     items:
+ *                       type: string
+ *                     example: [roses, tulips, lilies]
+ *                   size:
+ *                     type: string
+ *                     example: Medium
+ *                   seasonality:
+ *                     type: string
+ *                     example: Spring
+ *                   careInstructions:
+ *                     type: string
+ *                     example: Keep in cool water, change water daily
+ *                   vaseIncluded:
+ *                     type: boolean
+ *                     example: true
+ *               booksAttributes:
+ *                 type: object
+ *                 description: Required when section is BOOKS. Contains book-specific product details.
+ *                 required:
+ *                   - title
+ *                   - author
+ *                   - format
+ *                   - genre
+ *                 properties:
+ *                   title:
+ *                     type: string
+ *                     example: The Great Novel
+ *                   description:
+ *                     type: string
+ *                     example: An epic tale of adventure and discovery
+ *                   author:
+ *                     type: string
+ *                     example: Jane Doe
+ *                   isbn:
+ *                     type: string
+ *                     example: 978-1234567890
+ *                   publisher:
+ *                     type: string
+ *                     example: Penguin Books
+ *                   publishDate:
+ *                     type: string
+ *                     format: date-time
+ *                     example: 2024-01-15T00:00:00Z
+ *                   language:
+ *                     type: string
+ *                     example: English
+ *                   pageCount:
+ *                     type: integer
+ *                     example: 350
+ *                   format:
+ *                     type: string
+ *                     example: Hardcover
+ *                   genre:
+ *                     type: string
+ *                     example: Fiction
+ *                   condition:
+ *                     type: string
+ *                     example: New
+ *                   edition:
+ *                     type: string
+ *                     example: First Edition
+ *                   dimensions:
+ *                     type: string
+ *                     example: 8.5 x 5.5 x 1.2 inches
+ *                   weight:
+ *                     type: integer
+ *                     example: 500
  *     responses:
  *       201:
  *         description: Product created successfully
@@ -238,6 +371,151 @@ router.post(
   validate(productValidation.create),
   productController.createProduct
 );
+
+/**
+ * @swagger
+ * /products/bulk:
+ *   patch:
+ *     summary: Bulk update products
+ *     description: Update multiple products at once (Admin only)
+ *     tags: [Products]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - productIds
+ *               - updates
+ *             properties:
+ *               productIds:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                   format: uuid
+ *                 description: Array of product IDs to update
+ *                 example: ["uuid1", "uuid2", "uuid3"]
+ *               updates:
+ *                 type: object
+ *                 description: Fields to update for all selected products
+ *                 properties:
+ *                   isActive:
+ *                     type: boolean
+ *                   isFeatured:
+ *                     type: boolean
+ *                   category:
+ *                     type: string
+ *                   tags:
+ *                     type: array
+ *                     items:
+ *                       type: string
+ *     responses:
+ *       200:
+ *         description: Products updated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     updatedCount:
+ *                       type: integer
+ *                       example: 5
+ *       400:
+ *         description: Validation error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       403:
+ *         description: Forbidden - Admin only
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router.patch('/bulk', authorize(UserRole.ADMIN), bulkLimiter, productController.bulkUpdate);
+
+/**
+ * @swagger
+ * /products/bulk:
+ *   delete:
+ *     summary: Bulk delete products
+ *     description: Delete multiple products at once (Admin only)
+ *     tags: [Products]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - productIds
+ *             properties:
+ *               productIds:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                   format: uuid
+ *                 description: Array of product IDs to delete
+ *                 example: ["uuid1", "uuid2", "uuid3"]
+ *               force:
+ *                 type: boolean
+ *                 default: false
+ *                 description: Permanently delete the products
+ *     responses:
+ *       200:
+ *         description: Products deleted successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     deletedCount:
+ *                       type: integer
+ *                       example: 3
+ *       400:
+ *         description: Validation error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       403:
+ *         description: Forbidden - Admin only
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router.delete('/bulk', authorize(UserRole.ADMIN), bulkLimiter, productController.bulkDelete);
 
 /**
  * @swagger
@@ -308,42 +586,118 @@ router.get('/:id', validate(productValidation.getById), productController.getPro
  *           schema:
  *             type: object
  *             properties:
- *               name:
- *                 type: string
- *               description:
- *                 type: string
  *               sku:
  *                 type: string
  *               price:
  *                 type: number
  *               compareAtPrice:
  *                 type: number
- *               cost:
+ *               costPrice:
  *                 type: number
- *               stock:
+ *               stockQuantity:
  *                 type: integer
- *               section:
- *                 type: string
- *                 enum: [CAFE, FLOWERS, BOOKS]
- *               category:
- *                 type: string
+ *               trackQuantity:
+ *                 type: boolean
+ *               continueSellingOutOfStock:
+ *                 type: boolean
  *               tags:
  *                 type: array
  *                 items:
  *                   type: string
- *               isActive:
- *                 type: boolean
- *               isFeatured:
- *                 type: boolean
- *               weight:
- *                 type: number
- *               weightUnit:
+ *               collections:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *               status:
  *                 type: string
- *                 enum: [KG, G, LB, OZ]
- *               dimensions:
+ *                 enum: [ACTIVE, DRAFT, ARCHIVED]
+ *               cafeAttributes:
  *                 type: object
- *               metadata:
+ *                 description: Update cafe-specific attributes (only for CAFE products)
+ *                 properties:
+ *                   name:
+ *                     type: string
+ *                   description:
+ *                     type: string
+ *                   category:
+ *                     type: string
+ *                   origin:
+ *                     type: string
+ *                   roastLevel:
+ *                     type: string
+ *                   caffeineContent:
+ *                     type: string
+ *                   size:
+ *                     type: string
+ *                   temperature:
+ *                     type: string
+ *                   allergens:
+ *                     type: array
+ *                     items:
+ *                       type: string
+ *                   calories:
+ *                     type: integer
+ *               flowersAttributes:
  *                 type: object
+ *                 description: Update flower-specific attributes (only for FLOWERS products)
+ *                 properties:
+ *                   name:
+ *                     type: string
+ *                   description:
+ *                     type: string
+ *                   arrangementType:
+ *                     type: string
+ *                   occasion:
+ *                     type: string
+ *                   colors:
+ *                     type: array
+ *                     items:
+ *                       type: string
+ *                   flowerTypes:
+ *                     type: array
+ *                     items:
+ *                       type: string
+ *                   size:
+ *                     type: string
+ *                   seasonality:
+ *                     type: string
+ *                   careInstructions:
+ *                     type: string
+ *                   vaseIncluded:
+ *                     type: boolean
+ *               booksAttributes:
+ *                 type: object
+ *                 description: Update book-specific attributes (only for BOOKS products)
+ *                 properties:
+ *                   title:
+ *                     type: string
+ *                   description:
+ *                     type: string
+ *                   author:
+ *                     type: string
+ *                   isbn:
+ *                     type: string
+ *                   publisher:
+ *                     type: string
+ *                   publishDate:
+ *                     type: string
+ *                     format: date-time
+ *                   language:
+ *                     type: string
+ *                   pageCount:
+ *                     type: integer
+ *                   format:
+ *                     type: string
+ *                   genre:
+ *                     type: string
+ *                   condition:
+ *                     type: string
+ *                   edition:
+ *                     type: string
+ *                   dimensions:
+ *                     type: string
+ *                   weight:
+ *                     type: integer
  *     responses:
  *       200:
  *         description: Product updated successfully
@@ -683,150 +1037,5 @@ router.delete(
   authorize(UserRole.ADMIN, UserRole.MANAGER),
   productController.deleteImage
 );
-
-/**
- * @swagger
- * /products/bulk:
- *   patch:
- *     summary: Bulk update products
- *     description: Update multiple products at once (Admin only)
- *     tags: [Products]
- *     security:
- *       - bearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - productIds
- *               - updates
- *             properties:
- *               productIds:
- *                 type: array
- *                 items:
- *                   type: string
- *                   format: uuid
- *                 description: Array of product IDs to update
- *                 example: ["uuid1", "uuid2", "uuid3"]
- *               updates:
- *                 type: object
- *                 description: Fields to update for all selected products
- *                 properties:
- *                   isActive:
- *                     type: boolean
- *                   isFeatured:
- *                     type: boolean
- *                   category:
- *                     type: string
- *                   tags:
- *                     type: array
- *                     items:
- *                       type: string
- *     responses:
- *       200:
- *         description: Products updated successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 data:
- *                   type: object
- *                   properties:
- *                     updatedCount:
- *                       type: integer
- *                       example: 5
- *       400:
- *         description: Validation error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
- *       403:
- *         description: Forbidden - Admin only
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
- */
-router.patch('/bulk', authorize(UserRole.ADMIN), bulkLimiter, productController.bulkUpdate);
-
-/**
- * @swagger
- * /products/bulk:
- *   delete:
- *     summary: Bulk delete products
- *     description: Delete multiple products at once (Admin only)
- *     tags: [Products]
- *     security:
- *       - bearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - productIds
- *             properties:
- *               productIds:
- *                 type: array
- *                 items:
- *                   type: string
- *                   format: uuid
- *                 description: Array of product IDs to delete
- *                 example: ["uuid1", "uuid2", "uuid3"]
- *               force:
- *                 type: boolean
- *                 default: false
- *                 description: Permanently delete the products
- *     responses:
- *       200:
- *         description: Products deleted successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 data:
- *                   type: object
- *                   properties:
- *                     deletedCount:
- *                       type: integer
- *                       example: 3
- *       400:
- *         description: Validation error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
- *       403:
- *         description: Forbidden - Admin only
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
- */
-router.delete('/bulk', authorize(UserRole.ADMIN), bulkLimiter, productController.bulkDelete);
 
 export default router;

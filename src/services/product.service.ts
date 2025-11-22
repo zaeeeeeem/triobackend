@@ -1,72 +1,20 @@
 import { Prisma, Section, ProductStatus, ProductAvailability } from '@prisma/client';
 import prisma from '../config/database';
-import { NotFoundError, ValidationError, ConflictError } from '../utils/errors';
+import { NotFoundError, ConflictError } from '../utils/errors';
 import { cache } from '../config/redis';
 import { env } from '../config/env';
-
-export interface CreateProductDto {
-  name?: string;
-  title?: string;
-  description?: string;
-  section: Section;
-  price: number;
-  compareAtPrice?: number;
-  costPrice?: number;
-  sku: string;
-  stockQuantity: number;
-  trackQuantity?: boolean;
-  continueSellingOutOfStock?: boolean;
-  status?: ProductStatus;
-  tags?: string[];
-  collections?: string[];
-  cafeAttributes?: Prisma.InputJsonValue;
-  flowersAttributes?: Prisma.InputJsonValue;
-  booksAttributes?: Prisma.InputJsonValue;
-}
-
-export interface UpdateProductDto extends Partial<CreateProductDto> {
-  section?: never; // Prevent changing section
-}
-
-export interface ProductQueryParams {
-  page?: number;
-  limit?: number;
-  search?: string;
-  section?: Section;
-  status?: ProductStatus;
-  availability?: ProductAvailability;
-  sortBy?: string;
-  sortOrder?: 'asc' | 'desc';
-  minPrice?: number;
-  maxPrice?: number;
-  minStock?: number;
-  maxStock?: number;
-  tags?: string;
-  collections?: string;
-  // Section-specific filters
-  category?: string;
-  caffeineContent?: string;
-  arrangementType?: string;
-  colors?: string;
-  author?: string;
-  genre?: string;
-  format?: string;
-  condition?: string;
-  language?: string;
-}
-
-export interface ProductListResult {
-  products: unknown[];
-  totalItems: number;
-  page: number;
-  limit: number;
-}
+import {
+  CreateProductDto,
+  UpdateProductDto,
+  ProductQueryParams,
+  ProductListResult,
+  CreateCafeProductDto,
+  CreateFlowersProductDto,
+  CreateBooksProductDto,
+} from '../types/product.types';
 
 export class ProductService {
   async createProduct(data: CreateProductDto, userId: string) {
-    // Validate section-specific requirements
-    this.validateSectionData(data);
-
     // Check SKU uniqueness
     const existingSku = await prisma.product.findUnique({
       where: { sku: data.sku },
@@ -82,21 +30,104 @@ export class ProductService {
       data.continueSellingOutOfStock || false
     );
 
-    // Create product
-    const product = await prisma.product.create({
-      data: {
-        ...data,
-        availability,
-        trackQuantity: data.trackQuantity ?? true,
-        status: data.status || ProductStatus.DRAFT,
-        createdBy: userId,
-        updatedBy: userId,
-      },
-      include: {
-        images: true,
-        variants: true,
-      },
+    // Create product based on section
+    const product = await prisma.$transaction(async (tx) => {
+      // Create base product
+      const baseProduct = await tx.product.create({
+        data: {
+          sku: data.sku,
+          section: data.section,
+          price: data.price,
+          compareAtPrice: data.compareAtPrice,
+          costPrice: data.costPrice,
+          stockQuantity: data.stockQuantity,
+          trackQuantity: data.trackQuantity ?? true,
+          continueSellingOutOfStock: data.continueSellingOutOfStock || false,
+          availability,
+          status: data.status || ProductStatus.DRAFT,
+          tags: data.tags || [],
+          collections: data.collections || [],
+          createdBy: userId,
+          updatedBy: userId,
+        },
+      });
+
+      // Create section-specific product
+      if (data.section === Section.CAFE) {
+        const cafeData = data as CreateCafeProductDto;
+        await tx.cafeProduct.create({
+          data: {
+            productId: baseProduct.id,
+            name: cafeData.cafeAttributes.name,
+            description: cafeData.cafeAttributes.description,
+            category: cafeData.cafeAttributes.category,
+            origin: cafeData.cafeAttributes.origin,
+            roastLevel: cafeData.cafeAttributes.roastLevel,
+            caffeineContent: cafeData.cafeAttributes.caffeineContent,
+            size: cafeData.cafeAttributes.size,
+            temperature: cafeData.cafeAttributes.temperature,
+            allergens: cafeData.cafeAttributes.allergens || [],
+            calories: cafeData.cafeAttributes.calories,
+          },
+        });
+      } else if (data.section === Section.FLOWERS) {
+        const flowersData = data as CreateFlowersProductDto;
+        await tx.flowersProduct.create({
+          data: {
+            productId: baseProduct.id,
+            name: flowersData.flowersAttributes.name,
+            description: flowersData.flowersAttributes.description,
+            arrangementType: flowersData.flowersAttributes.arrangementType,
+            occasion: flowersData.flowersAttributes.occasion,
+            colors: flowersData.flowersAttributes.colors || [],
+            flowerTypes: flowersData.flowersAttributes.flowerTypes || [],
+            size: flowersData.flowersAttributes.size,
+            seasonality: flowersData.flowersAttributes.seasonality,
+            careInstructions: flowersData.flowersAttributes.careInstructions,
+            vaseIncluded: flowersData.flowersAttributes.vaseIncluded || false,
+          },
+        });
+      } else if (data.section === Section.BOOKS) {
+        const booksData = data as CreateBooksProductDto;
+        await tx.booksProduct.create({
+          data: {
+            productId: baseProduct.id,
+            title: booksData.booksAttributes.title,
+            description: booksData.booksAttributes.description,
+            author: booksData.booksAttributes.author,
+            isbn: booksData.booksAttributes.isbn,
+            publisher: booksData.booksAttributes.publisher,
+            publishDate: booksData.booksAttributes.publishDate
+              ? new Date(booksData.booksAttributes.publishDate)
+              : undefined,
+            language: booksData.booksAttributes.language || 'English',
+            pageCount: booksData.booksAttributes.pageCount,
+            format: booksData.booksAttributes.format,
+            genre: booksData.booksAttributes.genre,
+            condition: booksData.booksAttributes.condition || 'New',
+            edition: booksData.booksAttributes.edition,
+            dimensions: booksData.booksAttributes.dimensions,
+            weight: booksData.booksAttributes.weight,
+          },
+        });
+      }
+
+      // Fetch complete product with relations
+      return tx.product.findUnique({
+        where: { id: baseProduct.id },
+        include: {
+          cafeProduct: true,
+          flowersProduct: true,
+          booksProduct: true,
+          images: true,
+          variants: true,
+        },
+      });
     });
+
+    if (!product) {
+      throw new Error('Failed to create product');
+    }
 
     // Create corresponding inventory item
     await this.createInventoryItem(product);
@@ -111,6 +142,9 @@ export class ProductService {
     const product = await prisma.product.findFirst({
       where: { id, deletedAt: null },
       include: {
+        cafeProduct: true,
+        flowersProduct: true,
+        booksProduct: true,
         images: {
           orderBy: { position: 'asc' },
         },
@@ -147,13 +181,35 @@ export class ProductService {
       where.section = params.section;
     }
 
-    // Search
+    // Search - need to handle section-specific fields
     if (params.search) {
       where.OR = [
-        { name: { contains: params.search, mode: 'insensitive' } },
-        { title: { contains: params.search, mode: 'insensitive' } },
-        { description: { contains: params.search, mode: 'insensitive' } },
         { sku: { contains: params.search, mode: 'insensitive' } },
+        {
+          cafeProduct: {
+            OR: [
+              { name: { contains: params.search, mode: 'insensitive' } },
+              { description: { contains: params.search, mode: 'insensitive' } },
+            ],
+          },
+        },
+        {
+          flowersProduct: {
+            OR: [
+              { name: { contains: params.search, mode: 'insensitive' } },
+              { description: { contains: params.search, mode: 'insensitive' } },
+            ],
+          },
+        },
+        {
+          booksProduct: {
+            OR: [
+              { title: { contains: params.search, mode: 'insensitive' } },
+              { description: { contains: params.search, mode: 'insensitive' } },
+              { author: { contains: params.search, mode: 'insensitive' } },
+            ],
+          },
+        },
       ];
     }
 
@@ -201,38 +257,56 @@ export class ProductService {
 
     // Section-specific filters
     if (params.section === Section.CAFE) {
-      if (params.category) {
-        where.cafeAttributes = { path: ['category'], equals: params.category };
+      const cafeWhere: Record<string, unknown> = {};
+      if (params.cafeCategory) {
+        cafeWhere.category = params.cafeCategory;
       }
       if (params.caffeineContent) {
-        where.cafeAttributes = { path: ['caffeineContent'], equals: params.caffeineContent };
+        cafeWhere.caffeineContent = params.caffeineContent;
+      }
+      if (params.origin) {
+        cafeWhere.origin = params.origin;
+      }
+      if (Object.keys(cafeWhere).length > 0) {
+        (where as Record<string, unknown>).cafeProduct = cafeWhere;
       }
     }
 
     if (params.section === Section.FLOWERS) {
+      const flowersWhere: Record<string, unknown> = {};
       if (params.arrangementType) {
-        where.flowersAttributes = { path: ['arrangementType'], equals: params.arrangementType };
+        flowersWhere.arrangementType = params.arrangementType;
+      }
+      if (params.occasion) {
+        flowersWhere.occasion = params.occasion;
+      }
+      if (Object.keys(flowersWhere).length > 0) {
+        (where as Record<string, unknown>).flowersProduct = flowersWhere;
       }
     }
 
     if (params.section === Section.BOOKS) {
+      const booksWhere: Record<string, unknown> = {};
       if (params.author) {
-        where.booksAttributes = { path: ['author'], string_contains: params.author };
+        booksWhere.author = { contains: params.author, mode: 'insensitive' };
+      }
+      if (params.genre) {
+        booksWhere.genre = params.genre;
       }
       if (params.format) {
-        where.booksAttributes = { path: ['format'], equals: params.format };
+        booksWhere.format = params.format;
+      }
+      if (Object.keys(booksWhere).length > 0) {
+        (where as Record<string, unknown>).booksProduct = booksWhere;
       }
     }
 
     // Sorting
     const orderBy: Prisma.ProductOrderByWithRelationInput = {};
-    const sortBy = params.sortBy || 'createdAt';
     const sortOrder = params.sortOrder || 'desc';
 
-    if (sortBy === 'name' || sortBy === 'title') {
-      orderBy[params.section === Section.BOOKS ? 'title' : 'name'] = sortOrder;
-    } else if (sortBy === 'price' || sortBy === 'createdAt' || sortBy === 'updatedAt') {
-      orderBy[sortBy] = sortOrder;
+    if (params.sortBy === 'price' || params.sortBy === 'createdAt' || params.sortBy === 'updatedAt') {
+      orderBy[params.sortBy] = sortOrder;
     } else {
       orderBy.createdAt = 'desc';
     }
@@ -249,6 +323,9 @@ export class ProductService {
       prisma.product.findMany({
         where,
         include: {
+          cafeProduct: true,
+          flowersProduct: true,
+          booksProduct: true,
           images: {
             take: 1,
             orderBy: { position: 'asc' },
@@ -288,11 +365,6 @@ export class ProductService {
       }
     }
 
-    // Validate section-specific data if provided
-    if (data.cafeAttributes || data.flowersAttributes || data.booksAttributes) {
-      this.validateSectionData({ ...existingProduct, ...data } as CreateProductDto);
-    }
-
     // Recalculate availability if stock changed
     let availability = existingProduct.availability;
     if (data.stockQuantity !== undefined || data.continueSellingOutOfStock !== undefined) {
@@ -302,21 +374,102 @@ export class ProductService {
       );
     }
 
-    // Update product
-    const product = await prisma.product.update({
-      where: { id },
-      data: {
-        ...data,
-        availability,
-        updatedBy: userId,
-      },
-      include: {
-        images: {
-          orderBy: { position: 'asc' },
+    // Update product based on section
+    const product = await prisma.$transaction(async (tx) => {
+      // Update base product
+      const updatedProduct = await tx.product.update({
+        where: { id },
+        data: {
+          sku: data.sku,
+          price: data.price,
+          compareAtPrice: data.compareAtPrice,
+          costPrice: data.costPrice,
+          stockQuantity: data.stockQuantity,
+          trackQuantity: data.trackQuantity,
+          continueSellingOutOfStock: data.continueSellingOutOfStock,
+          availability,
+          status: data.status,
+          tags: data.tags,
+          collections: data.collections,
+          updatedBy: userId,
         },
-        variants: true,
-      },
+      });
+
+      // Update section-specific product
+      if (existingProduct.section === Section.CAFE && 'cafeAttributes' in data && data.cafeAttributes) {
+        await tx.cafeProduct.update({
+          where: { productId: id },
+          data: {
+            name: data.cafeAttributes.name,
+            description: data.cafeAttributes.description,
+            category: data.cafeAttributes.category,
+            origin: data.cafeAttributes.origin,
+            roastLevel: data.cafeAttributes.roastLevel,
+            caffeineContent: data.cafeAttributes.caffeineContent,
+            size: data.cafeAttributes.size,
+            temperature: data.cafeAttributes.temperature,
+            allergens: data.cafeAttributes.allergens,
+            calories: data.cafeAttributes.calories,
+          },
+        });
+      } else if (existingProduct.section === Section.FLOWERS && 'flowersAttributes' in data && data.flowersAttributes) {
+        await tx.flowersProduct.update({
+          where: { productId: id },
+          data: {
+            name: data.flowersAttributes.name,
+            description: data.flowersAttributes.description,
+            arrangementType: data.flowersAttributes.arrangementType,
+            occasion: data.flowersAttributes.occasion,
+            colors: data.flowersAttributes.colors,
+            flowerTypes: data.flowersAttributes.flowerTypes,
+            size: data.flowersAttributes.size,
+            seasonality: data.flowersAttributes.seasonality,
+            careInstructions: data.flowersAttributes.careInstructions,
+            vaseIncluded: data.flowersAttributes.vaseIncluded,
+          },
+        });
+      } else if (existingProduct.section === Section.BOOKS && 'booksAttributes' in data && data.booksAttributes) {
+        await tx.booksProduct.update({
+          where: { productId: id },
+          data: {
+            title: data.booksAttributes.title,
+            description: data.booksAttributes.description,
+            author: data.booksAttributes.author,
+            isbn: data.booksAttributes.isbn,
+            publisher: data.booksAttributes.publisher,
+            publishDate: data.booksAttributes.publishDate
+              ? new Date(data.booksAttributes.publishDate)
+              : undefined,
+            language: data.booksAttributes.language,
+            pageCount: data.booksAttributes.pageCount,
+            format: data.booksAttributes.format,
+            genre: data.booksAttributes.genre,
+            condition: data.booksAttributes.condition,
+            edition: data.booksAttributes.edition,
+            dimensions: data.booksAttributes.dimensions,
+            weight: data.booksAttributes.weight,
+          },
+        });
+      }
+
+      // Fetch complete product with relations
+      return tx.product.findUnique({
+        where: { id: updatedProduct.id },
+        include: {
+          cafeProduct: true,
+          flowersProduct: true,
+          booksProduct: true,
+          images: {
+            orderBy: { position: 'asc' },
+          },
+          variants: true,
+        },
+      });
     });
+
+    if (!product) {
+      throw new Error('Failed to update product');
+    }
 
     // Invalidate cache
     await this.invalidateProductCache(product.section);
@@ -361,7 +514,7 @@ export class ProductService {
   }
 
   async bulkUpdateProducts(productIds: string[], updates: UpdateProductDto, userId: string) {
-    const results = { updated: 0, failed: 0, errors: [] as unknown[] };
+    const results = { updated: 0, failed: 0, errors: [] as Record<string, unknown>[] };
 
     for (const id of productIds) {
       try {
@@ -381,7 +534,7 @@ export class ProductService {
   }
 
   async bulkDeleteProducts(productIds: string[], force: boolean = false) {
-    const results = { deleted: 0, failed: 0, errors: [] as unknown[] };
+    const results = { deleted: 0, failed: 0, errors: [] as Record<string, unknown>[] };
 
     for (const id of productIds) {
       try {
@@ -400,35 +553,6 @@ export class ProductService {
     return results;
   }
 
-  private validateSectionData(data: CreateProductDto) {
-    if (data.section === Section.CAFE) {
-      if (!data.name) {
-        throw new ValidationError('Name is required for cafe products');
-      }
-      if (!data.cafeAttributes) {
-        throw new ValidationError('Cafe attributes are required for cafe products');
-      }
-    }
-
-    if (data.section === Section.FLOWERS) {
-      if (!data.name) {
-        throw new ValidationError('Name is required for flower products');
-      }
-      if (!data.flowersAttributes) {
-        throw new ValidationError('Flowers attributes are required for flower products');
-      }
-    }
-
-    if (data.section === Section.BOOKS) {
-      if (!data.title) {
-        throw new ValidationError('Title is required for book products');
-      }
-      if (!data.booksAttributes) {
-        throw new ValidationError('Books attributes are required for book products');
-      }
-    }
-  }
-
   private calculateAvailability(
     stockQuantity: number,
     continueSellingOutOfStock: boolean
@@ -442,22 +566,28 @@ export class ProductService {
       : ProductAvailability.OUT_OF_STOCK;
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private async createInventoryItem(product: any) {
+  private async createInventoryItem(product: Record<string, unknown>) {
+    const productName =
+      product.section === Section.BOOKS
+        ? (product.booksProduct as Record<string, unknown>)?.title
+        : product.section === Section.CAFE
+        ? (product.cafeProduct as Record<string, unknown>)?.name
+        : (product.flowersProduct as Record<string, unknown>)?.name;
+
     await prisma.inventoryItem.create({
       data: {
-        productId: product.id,
-        productName: product.name || product.title,
-        sku: product.sku,
-        section: product.section,
-        onHand: product.stockQuantity,
-        available: product.stockQuantity,
+        productId: product.id as string,
+        productName: productName as string,
+        sku: product.sku as string,
+        section: product.section as Section,
+        onHand: product.stockQuantity as number,
+        available: product.stockQuantity as number,
         committed: 0,
         incoming: 0,
         location: 'Main Warehouse',
-        costPrice: product.costPrice || 0,
-        sellingPrice: product.price,
-        status: product.stockQuantity > 0 ? 'IN_STOCK' : 'OUT_OF_STOCK',
+        costPrice: (product.costPrice as number) || 0,
+        sellingPrice: product.price as number,
+        status: (product.stockQuantity as number) > 0 ? 'IN_STOCK' : 'OUT_OF_STOCK',
         reorderPoint: 10,
         reorderQuantity: 50,
       },

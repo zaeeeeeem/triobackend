@@ -68,18 +68,14 @@ enum Section {
 }
 
 // =====================================================
-// PRODUCTS
+// PRODUCTS - Class Table Inheritance
 // =====================================================
 
+// Base Product table with common fields
 model Product {
   id    String  @id @default(uuid())
   sku   String  @unique
-
-  // Basic Information (name for cafe/flowers, title for books)
-  name        String?
-  title       String?
-  description String?  @db.Text
-  section     Section
+  section Section
 
   // Pricing
   price          Decimal @db.Decimal(10, 2)
@@ -97,11 +93,6 @@ model Product {
   tags        String[]
   collections String[]
 
-  // Section-specific attributes (stored as JSON)
-  cafeAttributes    Json? @map("cafe_attributes")
-  flowersAttributes Json? @map("flowers_attributes")
-  booksAttributes   Json? @map("books_attributes")
-
   // Metadata
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
@@ -117,6 +108,11 @@ model Product {
   inventory    InventoryItem?
   orderItems   OrderItem[]
 
+  // Section-specific relations (one-to-one, mutually exclusive)
+  cafeProduct    CafeProduct?
+  flowersProduct FlowersProduct?
+  booksProduct   BooksProduct?
+
   @@index([section])
   @@index([sku])
   @@index([status])
@@ -124,6 +120,93 @@ model Product {
   @@index([createdAt(sort: Desc)])
   @@index([deletedAt])
   @@map("products")
+}
+
+// Cafe-specific attributes
+model CafeProduct {
+  id        String  @id @default(uuid())
+  productId String  @unique @map("product_id")
+
+  // Cafe product details
+  name        String
+  description String? @db.Text
+
+  // Cafe-specific attributes
+  category        String   // Coffee, Tea, Pastries, etc.
+  origin          String?  // Country/region of origin
+  roastLevel      String?  @map("roast_level") // Light, Medium, Dark (for coffee)
+  caffeineContent String?  @map("caffeine_content") // High, Medium, Low, None
+  size            String?  // Small, Medium, Large
+  temperature     String?  // Hot, Iced, Cold Brew
+  allergens       String[] // Dairy, Nuts, Gluten, etc.
+  calories        Int?
+
+  // Relations
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@index([category])
+  @@map("cafe_products")
+}
+
+// Flowers-specific attributes
+model FlowersProduct {
+  id        String  @id @default(uuid())
+  productId String  @unique @map("product_id")
+
+  // Flowers product details
+  name        String
+  description String? @db.Text
+
+  // Flowers-specific attributes
+  arrangementType  String   @map("arrangement_type") // Bouquet, Vase, Basket, etc.
+  occasion         String?  // Wedding, Birthday, Sympathy, etc.
+  colors           String[] // Red, White, Pink, etc.
+  flowerTypes      String[] @map("flower_types") // Rose, Lily, Tulip, etc.
+  size             String?  // Small, Medium, Large, Premium
+  seasonality      String?  // Year-round, Spring, Summer, etc.
+  careInstructions String?  @map("care_instructions") @db.Text
+  vaseIncluded     Boolean  @default(false) @map("vase_included")
+
+  // Relations
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@index([arrangementType])
+  @@map("flowers_products")
+}
+
+// Books-specific attributes
+model BooksProduct {
+  id        String  @id @default(uuid())
+  productId String  @unique @map("product_id")
+
+  // Books product details
+  title       String
+  description String? @db.Text
+
+  // Books-specific attributes
+  author      String
+  isbn        String?   @unique
+  publisher   String?
+  publishDate DateTime? @map("publish_date")
+  language    String    @default("English")
+  pageCount   Int?      @map("page_count")
+  format      String    // Hardcover, Paperback, eBook
+  genre       String    // Fiction, Non-Fiction, Biography, etc.
+  condition   String    @default("New") // New, Like New, Good, Fair
+  edition     String?
+  dimensions  String?   // e.g., "8.5 x 11 x 1 inches"
+  weight      Int?      // in grams
+
+  // Relations
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@index([author])
+  @@index([isbn])
+  @@index([genre])
+  @@map("books_products")
 }
 
 model ProductImage {
