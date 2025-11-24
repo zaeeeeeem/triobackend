@@ -47,6 +47,32 @@ export const env = {
   // Pagination
   DEFAULT_PAGE_SIZE: parseInt(process.env.DEFAULT_PAGE_SIZE || '20', 10),
   MAX_PAGE_SIZE: parseInt(process.env.MAX_PAGE_SIZE || '100', 10),
+
+  // Session Management (Admin Users)
+  MAX_ACTIVE_SESSIONS_PER_USER: parseInt(process.env.MAX_ACTIVE_SESSIONS_PER_USER || '5', 10),
+
+  // Token Cleanup Cron Job
+  TOKEN_CLEANUP_CRON_SCHEDULE: process.env.TOKEN_CLEANUP_CRON_SCHEDULE || '0 2 * * *', // Daily at 2 AM
+  ENABLE_TOKEN_CLEANUP_JOB: process.env.ENABLE_TOKEN_CLEANUP_JOB !== 'false', // Enabled by default
+
+  // Customer Authentication (separate from admin auth)
+  CUSTOMER_JWT_SECRET: process.env.CUSTOMER_JWT_SECRET || process.env.JWT_SECRET!,
+  CUSTOMER_JWT_EXPIRES_IN: process.env.CUSTOMER_JWT_EXPIRES_IN || '24h',
+  CUSTOMER_REFRESH_EXPIRES_IN: process.env.CUSTOMER_REFRESH_EXPIRES_IN || '30d',
+  GUEST_TOKEN_EXPIRES_IN: parseInt(process.env.GUEST_TOKEN_EXPIRES_IN || '604800', 10), // 7 days in seconds
+  MAX_CUSTOMER_SESSIONS: parseInt(process.env.MAX_CUSTOMER_SESSIONS || '5', 10),
+
+  // Email Service (SMTP)
+  SMTP_HOST: process.env.SMTP_HOST || 'smtp.gmail.com',
+  SMTP_PORT: parseInt(process.env.SMTP_PORT || '587', 10),
+  SMTP_SECURE: process.env.SMTP_SECURE === 'true',
+  SMTP_USER: process.env.SMTP_USER || '',
+  SMTP_PASS: process.env.SMTP_PASS || '',
+  EMAIL_FROM_NAME: process.env.EMAIL_FROM_NAME || 'TRIO Shopify',
+  EMAIL_FROM_ADDRESS: process.env.EMAIL_FROM_ADDRESS || 'noreply@trio.com',
+
+  // Frontend URL (for email links)
+  FRONTEND_URL: process.env.FRONTEND_URL || 'http://localhost:3000',
 };
 
 // Validate required environment variables

@@ -1,6 +1,11 @@
 import { Router } from 'express';
 import authRoutes from './auth.routes';
 import productRoutes from './product.routes';
+import customerAuthRoutes from './customer-auth.routes';
+import customerRoutes from './customer.routes';
+import customerAddressRoutes from './customer-address.routes';
+import adminCustomerRoutes from './admin-customer.routes';
+import guestOrderRoutes from './guest-order.routes';
 
 const router = Router();
 
@@ -44,5 +49,16 @@ router.get('/health', (_req, res) => {
 // API routes
 router.use('/auth', authRoutes);
 router.use('/products', productRoutes);
+
+// Customer authentication and management routes
+router.use('/customer-auth', customerAuthRoutes);
+router.use('/customers', customerRoutes);
+router.use('/customers/addresses', customerAddressRoutes);
+
+// Guest order routes
+router.use('/guest-orders', guestOrderRoutes);
+
+// Admin customer management routes
+router.use('/admin/customers', adminCustomerRoutes);
 
 export default router;

@@ -57,6 +57,24 @@ export class AuthController {
     }
   }
 
+  async logoutAll(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      await authService.logoutAll(req.user!.sub);
+      ApiResponseHandler.success(res, null, 'Logged out from all devices successfully');
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getActiveSessions(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const sessions = await authService.getActiveSessions(req.user!.sub);
+      ApiResponseHandler.success(res, { sessions }, 'Active sessions retrieved successfully');
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async changePassword(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const { oldPassword, newPassword } = req.body;

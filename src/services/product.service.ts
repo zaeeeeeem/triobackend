@@ -291,7 +291,8 @@ export class ProductService {
         booksWhere.author = { contains: params.author, mode: 'insensitive' };
       }
       if (params.genre) {
-        booksWhere.genre = params.genre;
+        // Check if genre array contains the specified genre
+        booksWhere.genre = { has: params.genre };
       }
       if (params.format) {
         booksWhere.format = params.format;

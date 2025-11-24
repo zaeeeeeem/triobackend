@@ -94,10 +94,36 @@ export class AuthService {
     const accessToken = this.generateAccessToken(userPayload);
     const refreshToken = this.generateRefreshToken(userPayload);
 
-    // Save refresh token
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + 7); // 7 days
+    // Calculate expiration from env (use ms library for parsing)
+    const expiresAt = this.calculateTokenExpiration(env.JWT_REFRESH_EXPIRES_IN);
 
+    // Cleanup: Delete expired tokens for this user
+    await prisma.refreshToken.deleteMany({
+      where: {
+        userId: user.id,
+        expiresAt: { lt: new Date() },
+      },
+    });
+
+    // Enforce session limit: Keep only the most recent N-1 tokens
+    const activeTokens = await prisma.refreshToken.findMany({
+      where: { userId: user.id },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true },
+    });
+
+    const maxSessions = env.MAX_ACTIVE_SESSIONS_PER_USER;
+    if (activeTokens.length >= maxSessions) {
+      // Delete oldest tokens to make room for new one
+      const tokensToDelete = activeTokens.slice(maxSessions - 1);
+      await prisma.refreshToken.deleteMany({
+        where: {
+          id: { in: tokensToDelete.map((t) => t.id) },
+        },
+      });
+    }
+
+    // Save new refresh token
     await prisma.refreshToken.create({
       data: {
         token: refreshToken,
@@ -132,6 +158,12 @@ export class AuthService {
       });
 
       if (!storedToken || storedToken.userId !== decoded.sub) {
+        // Reuse detection: If token was already used (deleted), invalidate all user tokens
+        if (!storedToken && decoded.sub) {
+          await prisma.refreshToken.deleteMany({
+            where: { userId: decoded.sub },
+          });
+        }
         throw new UnauthorizedError('Invalid refresh token');
       }
 
@@ -141,7 +173,7 @@ export class AuthService {
         throw new UnauthorizedError('Refresh token expired');
       }
 
-      // Generate new access token
+      // Generate new tokens (token rotation)
       const userPayload: UserTokenPayload = {
         id: storedToken.user.id,
         email: storedToken.user.email,
@@ -150,10 +182,32 @@ export class AuthService {
         role: storedToken.user.role,
         assignedSection: storedToken.user.assignedSection ?? undefined,
       };
-      const accessToken = this.generateAccessToken(userPayload);
+      const newAccessToken = this.generateAccessToken(userPayload);
+      const newRefreshToken = this.generateRefreshToken(userPayload);
 
-      return { accessToken };
-    } catch {
+      // Calculate expiration for new refresh token
+      const expiresAt = this.calculateTokenExpiration(env.JWT_REFRESH_EXPIRES_IN);
+
+      // Delete old refresh token and create new one (token rotation)
+      await prisma.$transaction([
+        prisma.refreshToken.delete({ where: { token: refreshToken } }),
+        prisma.refreshToken.create({
+          data: {
+            token: newRefreshToken,
+            userId: storedToken.user.id,
+            expiresAt,
+          },
+        }),
+      ]);
+
+      return {
+        accessToken: newAccessToken,
+        refreshToken: newRefreshToken,
+      };
+    } catch (error) {
+      if (error instanceof UnauthorizedError) {
+        throw error;
+      }
       throw new UnauthorizedError('Invalid refresh token');
     }
   }
@@ -162,6 +216,30 @@ export class AuthService {
     await prisma.refreshToken.deleteMany({
       where: { token: refreshToken },
     });
+  }
+
+  async logoutAll(userId: string) {
+    // Delete all refresh tokens for this user
+    await prisma.refreshToken.deleteMany({
+      where: { userId },
+    });
+  }
+
+  async getActiveSessions(userId: string) {
+    const sessions = await prisma.refreshToken.findMany({
+      where: {
+        userId,
+        expiresAt: { gte: new Date() }, // Only active (non-expired) sessions
+      },
+      select: {
+        id: true,
+        createdAt: true,
+        expiresAt: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return sessions;
   }
 
   async changePassword(userId: string, oldPassword: string, newPassword: string) {
@@ -211,6 +289,40 @@ export class AuthService {
     return jwt.sign(payload, env.JWT_REFRESH_SECRET, {
       expiresIn: env.JWT_REFRESH_EXPIRES_IN,
     } as SignOptions);
+  }
+
+  private calculateTokenExpiration(expiresIn: string): Date {
+    // Parse time string like "7d", "24h", "60m", "3600s"
+    const expiresAt = new Date();
+    const match = expiresIn.match(/^(\d+)([smhd])$/);
+
+    if (!match) {
+      // Default to 7 days if invalid format
+      expiresAt.setDate(expiresAt.getDate() + 7);
+      return expiresAt;
+    }
+
+    const value = parseInt(match[1], 10);
+    const unit = match[2];
+
+    switch (unit) {
+      case 's': // seconds
+        expiresAt.setSeconds(expiresAt.getSeconds() + value);
+        break;
+      case 'm': // minutes
+        expiresAt.setMinutes(expiresAt.getMinutes() + value);
+        break;
+      case 'h': // hours
+        expiresAt.setHours(expiresAt.getHours() + value);
+        break;
+      case 'd': // days
+        expiresAt.setDate(expiresAt.getDate() + value);
+        break;
+      default:
+        expiresAt.setDate(expiresAt.getDate() + 7);
+    }
+
+    return expiresAt;
   }
 }
 

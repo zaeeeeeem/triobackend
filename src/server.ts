@@ -3,6 +3,7 @@ import { env } from './config/env';
 import { logger } from './utils/logger';
 import prisma from './config/database';
 import redis from './config/redis';
+import { startJobs, stopJobs } from './jobs';
 import process from 'process';
 
 const PORT = env.PORT;
@@ -12,6 +13,9 @@ const gracefulShutdown = async (signal: string) => {
   logger.info(`Received ${signal}, closing server gracefully...`);
 
   try {
+    // Stop background jobs
+    stopJobs();
+
     // Close database connection
     await prisma.$disconnect();
     logger.info('Database connection closed');
@@ -46,6 +50,9 @@ const server = app.listen(PORT, async () => {
     // Test Redis connection
     await redis.ping();
     logger.info('✓ Redis connected successfully');
+
+    // Start background jobs
+    startJobs();
 
     logger.info(`✓ Server is ready and listening on port ${PORT}`);
   } catch (error) {

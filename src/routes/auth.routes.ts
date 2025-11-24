@@ -229,6 +229,84 @@ router.post('/logout', authenticate, authController.logout);
 
 /**
  * @swagger
+ * /auth/logout-all:
+ *   post:
+ *     summary: Logout from all devices
+ *     description: Invalidate all refresh tokens for the authenticated user
+ *     tags: [Auth]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Logged out from all devices successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Logged out from all devices successfully
+ *       401:
+ *         description: Unauthorized - Invalid or missing token
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router.post('/logout-all', authenticate, authController.logoutAll);
+
+/**
+ * @swagger
+ * /auth/sessions:
+ *   get:
+ *     summary: Get active sessions
+ *     description: Retrieve all active sessions (devices) for the authenticated user
+ *     tags: [Auth]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Active sessions retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     sessions:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: string
+ *                             format: uuid
+ *                           createdAt:
+ *                             type: string
+ *                             format: date-time
+ *                           expiresAt:
+ *                             type: string
+ *                             format: date-time
+ *       401:
+ *         description: Unauthorized - Invalid or missing token
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router.get('/sessions', authenticate, authController.getActiveSessions);
+
+/**
+ * @swagger
  * /auth/change-password:
  *   post:
  *     summary: Change user password

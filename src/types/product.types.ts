@@ -84,7 +84,7 @@ export interface BooksProductAttributes {
   language?: string;
   pageCount?: number;
   format: string; // Hardcover, Paperback, eBook
-  genre: string; // Fiction, Non-Fiction, Biography, etc.
+  genre: string[]; // Fiction, Non-Fiction, Biography, etc. (can have multiple genres)
   condition?: string; // New, Like New, Good, Fair
   edition?: string;
   dimensions?: string;

@@ -193,7 +193,7 @@ model BooksProduct {
   language    String    @default("English")
   pageCount   Int?      @map("page_count")
   format      String    // Hardcover, Paperback, eBook
-  genre       String    // Fiction, Non-Fiction, Biography, etc.
+  genre       String[]  // Fiction, Non-Fiction, Biography, etc. (can have multiple genres)
   condition   String    @default("New") // New, Like New, Good, Fair
   edition     String?
   dimensions  String?   // e.g., "8.5 x 11 x 1 inches"
@@ -343,7 +343,19 @@ enum AdjustmentType {
 model Order {
   id          String   @id @default(uuid())
   orderNumber String   @unique @map("order_number")
-  customerId  String   @map("customer_id")
+
+  // Customer Link (NULL for guest orders)
+  customerId  String?  @map("customer_id")
+
+  // Always Store Email (for guest linking & identification)
+  customerEmail String  @map("customer_email")
+  customerName  String  @map("customer_name")
+  customerPhone String? @map("customer_phone")
+
+  // Guest Tracking
+  guestOrder Boolean @default(false) @map("guest_order")
+  guestToken String? @map("guest_token") // Temporary guest session token
+
   section     Section
 
   // Status
@@ -373,17 +385,19 @@ model Order {
   createdBy String    @map("created_by")
 
   // Relations
-  customer        Customer         @relation(fields: [customerId], references: [id])
+  customer        Customer?        @relation(fields: [customerId], references: [id])
   creator         User             @relation("OrderCreator", fields: [createdBy], references: [id])
   items           OrderItem[]
   shippingAddress ShippingAddress?
 
   @@index([customerId])
+  @@index([customerEmail]) // Index for guest order lookup
   @@index([section])
   @@index([paymentStatus])
   @@index([fulfillmentStatus])
   @@index([orderDate(sort: Desc)])
   @@index([orderNumber])
+  @@index([guestToken])
   @@map("orders")
 }
 
@@ -450,30 +464,127 @@ enum FulfillmentStatus {
 model Customer {
   id        String   @id @default(uuid())
   email     String   @unique
-  firstName String   @map("first_name")
-  lastName  String   @map("last_name")
+
+  // Authentication
+  passwordHash              String?  @map("password_hash") // NULL for guest-converted customers
+  emailVerified             Boolean  @default(false) @map("email_verified")
+  emailVerificationToken    String?  @map("email_verification_token")
+  emailVerificationExpiry   DateTime? @map("email_verification_expiry")
+  passwordResetToken        String?  @map("password_reset_token")
+  passwordResetExpiry       DateTime? @map("password_reset_expiry")
+
+  // Basic Information
+  name      String   // Full name (required)
+  firstName String?  @map("first_name")
+  lastName  String?  @map("last_name")
   phone     String?
 
-  // Status
-  isActive Boolean @default(true) @map("is_active")
+  // Location
+  location String? // City, Country
+  timezone String? @default("Asia/Karachi")
+  language String? @default("en")
+
+  // Status & Metrics
+  status            CustomerStatus @default(ACTIVE)
+  totalOrders       Int     @default(0) @map("total_orders") // Total order count
+  totalSpent        Decimal @default(0) @map("total_spent") @db.Decimal(10, 2)
+  averageOrderValue Decimal @default(0) @map("average_order_value") @db.Decimal(10, 2)
+
+  // Segmentation
+  tags         String[]
+  customerType CustomerType? @map("customer_type")
+
+  // Preferences
+  marketingConsent  Boolean @default(false) @map("marketing_consent")
+  smsConsent        Boolean @default(false) @map("sms_consent")
+  emailPreferences  Json    @default("{\"newsletter\": true, \"orderUpdates\": true, \"promotions\": false}") @map("email_preferences")
+
+  // Account Origin
+  createdFromGuest     Boolean @default(false) @map("created_from_guest")
+  registrationSource   String? @map("registration_source") // web, mobile, admin, guest_conversion
 
   // Metadata
-  tags  String[]
-  notes String? @db.Text
-
-  // Statistics
-  totalOrders   Int     @default(0) @map("total_orders")
-  totalSpent    Decimal @default(0) @map("total_spent") @db.Decimal(10, 2)
-
-  // Timestamps
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  notes          String?   @db.Text
+  lastLogin      DateTime? @map("last_login")
+  lastOrderDate  DateTime? @map("last_order_date")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at") // Soft delete
 
   // Relations
-  orders Order[]
+  orders          Order[]
+  addresses       CustomerAddress[]
+  refreshTokens   CustomerRefreshToken[]
 
   @@index([email])
+  @@index([status])
+  @@index([createdAt(sort: Desc)])
+  @@index([deletedAt])
   @@map("customers")
+}
+
+enum CustomerStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum CustomerType {
+  RETAIL
+  WHOLESALE
+  CORPORATE
+}
+
+// Customer Address model
+model CustomerAddress {
+  id         String  @id @default(uuid())
+  customerId String  @map("customer_id")
+
+  // Address Details
+  firstName    String  @map("first_name")
+  lastName     String  @map("last_name")
+  company      String?
+  addressLine1 String  @map("address_line1")
+  addressLine2 String? @map("address_line2")
+  city         String
+  state        String? // State/Province
+  postalCode   String  @map("postal_code")
+  country      String  // ISO country code
+
+  // Contact
+  phone String?
+
+  // Flags
+  isDefault        Boolean @default(false) @map("is_default")
+  isDefaultBilling Boolean @default(false) @map("is_default_billing")
+
+  // Metadata
+  label     String?   // "Home", "Office", etc.
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+  @@index([customerId, isDefault])
+  @@map("customer_addresses")
+}
+
+// Customer Refresh Tokens (separate from admin User refresh tokens)
+model CustomerRefreshToken {
+  id         String   @id @default(uuid())
+  customerId String   @map("customer_id")
+  token      String   @unique
+  expiresAt  DateTime @map("expires_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  // Relations
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+  @@index([token])
+  @@map("customer_refresh_tokens")
 }
 
 // =====================================================
