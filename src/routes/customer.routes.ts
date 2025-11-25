@@ -18,7 +18,7 @@ router.use(authenticateCustomer);
 
 /**
  * @swagger
- * /api/v1/customers/profile:
+ * /customers/profile:
  *   get:
  *     summary: Get customer profile with statistics
  *     tags: [Customer Profile]
@@ -34,7 +34,7 @@ router.get('/profile', customerController.getProfile);
 
 /**
  * @swagger
- * /api/v1/customers/profile:
+ * /customers/profile:
  *   patch:
  *     summary: Update customer profile
  *     tags: [Customer Profile]
@@ -71,7 +71,7 @@ router.patch('/profile', updateCustomerValidator, customerController.updateProfi
 
 /**
  * @swagger
- * /api/v1/customers/change-email:
+ * /customers/change-email:
  *   post:
  *     summary: Change customer email
  *     tags: [Customer Profile]
@@ -104,7 +104,7 @@ router.post('/change-email', changeEmailValidator, customerController.changeEmai
 
 /**
  * @swagger
- * /api/v1/customers/change-password:
+ * /customers/change-password:
  *   post:
  *     summary: Change customer password
  *     tags: [Customer Profile]
@@ -135,7 +135,7 @@ router.post('/change-password', changePasswordValidator, customerController.chan
 
 /**
  * @swagger
- * /api/v1/customers/preferences:
+ * /customers/preferences:
  *   patch:
  *     summary: Update customer preferences
  *     tags: [Customer Profile]
@@ -168,7 +168,7 @@ router.patch('/preferences', updatePreferencesValidator, customerController.upda
 
 /**
  * @swagger
- * /api/v1/customers/account:
+ * /customers/account:
  *   delete:
  *     summary: Delete customer account (soft delete)
  *     tags: [Customer Profile]
@@ -195,7 +195,7 @@ router.delete('/account', deleteAccountValidator, customerController.deleteAccou
 
 /**
  * @swagger
- * /api/v1/customers/orders:
+ * /customers/orders:
  *   get:
  *     summary: Get customer orders with filtering and pagination
  *     tags: [Customer Orders]
@@ -236,7 +236,7 @@ router.get('/orders', getOrdersValidator, customerController.getOrders);
 
 /**
  * @swagger
- * /api/v1/customers/orders/{orderId}:
+ * /customers/orders/{orderId}:
  *   get:
  *     summary: Get single order details
  *     tags: [Customer Orders]
@@ -259,7 +259,7 @@ router.get('/orders/:orderId', orderIdParamValidator, customerController.getOrde
 
 /**
  * @swagger
- * /api/v1/customers/statistics:
+ * /customers/statistics:
  *   get:
  *     summary: Get customer statistics
  *     tags: [Customer Profile]

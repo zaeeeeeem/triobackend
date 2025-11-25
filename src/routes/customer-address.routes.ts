@@ -15,7 +15,7 @@ router.use(authenticateCustomer);
 
 /**
  * @swagger
- * /api/v1/customers/addresses:
+ * /customers/addresses:
  *   get:
  *     summary: List all addresses for the authenticated customer
  *     tags: [Customer Addresses]
@@ -31,7 +31,7 @@ router.get('/', customerAddressController.listAddresses);
 
 /**
  * @swagger
- * /api/v1/customers/addresses:
+ * /customers/addresses:
  *   post:
  *     summary: Create a new address
  *     tags: [Customer Addresses]
@@ -88,7 +88,7 @@ router.post('/', createAddressValidator, customerAddressController.createAddress
 
 /**
  * @swagger
- * /api/v1/customers/addresses/{addressId}:
+ * /customers/addresses/{addressId}:
  *   get:
  *     summary: Get a specific address by ID
  *     tags: [Customer Addresses]
@@ -111,7 +111,7 @@ router.get('/:addressId', addressIdParamValidator, customerAddressController.get
 
 /**
  * @swagger
- * /api/v1/customers/addresses/{addressId}:
+ * /customers/addresses/{addressId}:
  *   patch:
  *     summary: Update an existing address
  *     tags: [Customer Addresses]
@@ -172,7 +172,7 @@ router.patch(
 
 /**
  * @swagger
- * /api/v1/customers/addresses/{addressId}:
+ * /customers/addresses/{addressId}:
  *   delete:
  *     summary: Delete an address
  *     tags: [Customer Addresses]
@@ -197,7 +197,7 @@ router.delete('/:addressId', addressIdParamValidator, customerAddressController.
 
 /**
  * @swagger
- * /api/v1/customers/addresses/{addressId}/set-default:
+ * /customers/addresses/{addressId}/set-default:
  *   post:
  *     summary: Set an address as default (shipping or billing)
  *     tags: [Customer Addresses]

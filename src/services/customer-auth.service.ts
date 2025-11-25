@@ -250,16 +250,19 @@ export class CustomerAuthService {
    * Logout customer (invalidate refresh token)
    */
   async logout(customerId: string, refreshToken: string): Promise<void> {
-    try {
-      await prisma.customerRefreshToken.delete({
-        where: { token: refreshToken },
-      });
+    const storedToken = await prisma.customerRefreshToken.findUnique({
+      where: { token: refreshToken },
+    });
 
-      logger.info(`Customer logged out: ${customerId}`);
-    } catch (error) {
-      // Token might already be deleted, ignore error
-      logger.debug('Logout error (token might not exist):', error);
+    if (!storedToken || storedToken.customerId !== customerId) {
+      throw new UnauthorizedError('Invalid refresh token');
     }
+
+    await prisma.customerRefreshToken.delete({
+      where: { id: storedToken.id },
+    });
+
+    logger.info(`Customer logged out: ${customerId}`);
   }
 
   /**
@@ -404,10 +407,10 @@ export class CustomerAuthService {
   /**
    * Resend verification email
    */
-  async resendVerificationEmail(customerId: string): Promise<void> {
+  async resendVerificationEmail(email: string): Promise<void> {
     try {
       const customer = await prisma.customer.findUnique({
-        where: { id: customerId },
+        where: { email },
       });
 
       if (!customer) {
@@ -423,7 +426,7 @@ export class CustomerAuthService {
       const emailVerificationExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
       await prisma.customer.update({
-        where: { id: customerId },
+        where: { id: customer.id },
         data: {
           emailVerificationToken,
           emailVerificationExpiry,
@@ -436,7 +439,7 @@ export class CustomerAuthService {
         emailVerificationToken
       );
 
-      logger.info(`Verification email resent to customer: ${customerId}`);
+      logger.info(`Verification email resent to customer: ${customer.id}`);
     } catch (error) {
       logger.error('Resend verification error:', error);
       throw error;

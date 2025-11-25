@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { UserRole } from '@prisma/client';
 import { adminCustomerController } from '../controllers/admin-customer.controller';
 import { authenticate, authorize } from '../middleware/auth';
 import {
@@ -12,11 +13,11 @@ const router = Router();
 
 // All routes require admin authentication and authorization
 router.use(authenticate);
-router.use(authorize(['admin', 'manager']));
+router.use(authorize(UserRole.ADMIN, UserRole.MANAGER));
 
 /**
  * @swagger
- * /api/v1/admin/customers:
+ * /admin/customers:
  *   get:
  *     summary: List all customers with filtering and pagination (Admin)
  *     tags: [Admin - Customer Management]
@@ -73,7 +74,7 @@ router.get('/', listCustomersValidator, adminCustomerController.listCustomers);
 
 /**
  * @swagger
- * /api/v1/admin/customers:
+ * /admin/customers:
  *   post:
  *     summary: Create a new customer (Admin)
  *     tags: [Admin - Customer Management]
@@ -128,7 +129,7 @@ router.post('/', adminCustomerController.createCustomer);
 
 /**
  * @swagger
- * /api/v1/admin/customers/{customerId}:
+ * /admin/customers/{customerId}:
  *   get:
  *     summary: Get customer by ID (Admin)
  *     tags: [Admin - Customer Management]
@@ -151,7 +152,7 @@ router.get('/:customerId', customerIdParamValidator, adminCustomerController.get
 
 /**
  * @swagger
- * /api/v1/admin/customers/{customerId}/profile:
+ * /admin/customers/{customerId}/profile:
  *   get:
  *     summary: Get customer profile with statistics (Admin)
  *     tags: [Admin - Customer Management]
@@ -178,7 +179,7 @@ router.get(
 
 /**
  * @swagger
- * /api/v1/admin/customers/{customerId}:
+ * /admin/customers/{customerId}:
  *   patch:
  *     summary: Update customer (Admin)
  *     tags: [Admin - Customer Management]
@@ -234,7 +235,7 @@ router.patch(
 
 /**
  * @swagger
- * /api/v1/admin/customers/{customerId}/orders:
+ * /admin/customers/{customerId}/orders:
  *   get:
  *     summary: Get customer orders (Admin)
  *     tags: [Admin - Customer Management]
@@ -277,7 +278,7 @@ router.get(
 
 /**
  * @swagger
- * /api/v1/admin/customers/{customerId}/statistics:
+ * /admin/customers/{customerId}/statistics:
  *   get:
  *     summary: Get customer statistics (Admin)
  *     tags: [Admin - Customer Management]

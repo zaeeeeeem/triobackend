@@ -15,7 +15,7 @@ const router = Router();
 
 /**
  * @swagger
- * /api/v1/customer-auth/register:
+ * /customer-auth/register:
  *   post:
  *     summary: Register a new customer account
  *     tags: [Customer Authentication]
@@ -60,7 +60,7 @@ router.post('/register', registerCustomerValidator, customerAuthController.regis
 
 /**
  * @swagger
- * /api/v1/customer-auth/login:
+ * /customer-auth/login:
  *   post:
  *     summary: Login with email and password
  *     tags: [Customer Authentication]
@@ -89,7 +89,7 @@ router.post('/login', loginCustomerValidator, customerAuthController.login);
 
 /**
  * @swagger
- * /api/v1/customer-auth/refresh:
+ * /customer-auth/refresh:
  *   post:
  *     summary: Refresh access token using refresh token
  *     tags: [Customer Authentication]
@@ -114,7 +114,7 @@ router.post('/refresh', refreshTokenValidator, customerAuthController.refreshTok
 
 /**
  * @swagger
- * /api/v1/customer-auth/logout:
+ * /customer-auth/logout:
  *   post:
  *     summary: Logout - invalidate refresh token
  *     tags: [Customer Authentication]
@@ -133,11 +133,16 @@ router.post('/refresh', refreshTokenValidator, customerAuthController.refreshTok
  *       200:
  *         description: Logout successful
  */
-router.post('/logout', authenticateCustomer, customerAuthController.logout);
+router.post(
+  '/logout',
+  authenticateCustomer,
+  refreshTokenValidator,
+  customerAuthController.logout
+);
 
 /**
  * @swagger
- * /api/v1/customer-auth/logout-all:
+ * /customer-auth/logout-all:
  *   post:
  *     summary: Logout from all devices
  *     tags: [Customer Authentication]
@@ -151,7 +156,7 @@ router.post('/logout-all', authenticateCustomer, customerAuthController.logoutAl
 
 /**
  * @swagger
- * /api/v1/customer-auth/forgot-password:
+ * /customer-auth/forgot-password:
  *   post:
  *     summary: Request password reset
  *     tags: [Customer Authentication]
@@ -175,7 +180,7 @@ router.post('/forgot-password', forgotPasswordValidator, customerAuthController.
 
 /**
  * @swagger
- * /api/v1/customer-auth/reset-password:
+ * /customer-auth/reset-password:
  *   post:
  *     summary: Reset password with token
  *     tags: [Customer Authentication]
@@ -204,7 +209,7 @@ router.post('/reset-password', resetPasswordValidator, customerAuthController.re
 
 /**
  * @swagger
- * /api/v1/customer-auth/verify-email:
+ * /customer-auth/verify-email:
  *   get:
  *     summary: Verify email with token
  *     tags: [Customer Authentication]
@@ -224,7 +229,7 @@ router.get('/verify-email', verifyEmailValidator, customerAuthController.verifyE
 
 /**
  * @swagger
- * /api/v1/customer-auth/resend-verification:
+ * /customer-auth/resend-verification:
  *   post:
  *     summary: Resend verification email
  *     tags: [Customer Authentication]
@@ -252,7 +257,7 @@ router.post(
 
 /**
  * @swagger
- * /api/v1/customer-auth/me:
+ * /customer-auth/me:
  *   get:
  *     summary: Get current authenticated customer's info
  *     tags: [Customer Authentication]
@@ -268,7 +273,7 @@ router.get('/me', authenticateCustomer, customerAuthController.getMe);
 
 /**
  * @swagger
- * /api/v1/customer-auth/guest-token:
+ * /customer-auth/guest-token:
  *   post:
  *     summary: Generate guest token for anonymous checkout
  *     tags: [Customer Authentication]

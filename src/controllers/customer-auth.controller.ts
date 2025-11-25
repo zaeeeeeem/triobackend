@@ -87,15 +87,18 @@ export class CustomerAuthController {
    */
   async logout(req: CustomerRequest, res: Response, next: NextFunction) {
     try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        throw new ValidationError('Validation failed', { errors: errors.array() });
+      }
+
       if (!req.customer) {
         throw new ValidationError('Authentication required');
       }
 
       const { refreshToken } = req.body;
 
-      if (refreshToken) {
-        await customerAuthService.logout(refreshToken);
-      }
+      await customerAuthService.logout(req.customer.id, refreshToken);
 
       logger.info(`Customer logged out: ${req.customer.id}`);
 

@@ -6,7 +6,7 @@ const router = Router();
 
 /**
  * @swagger
- * /api/v1/guest-orders/lookup:
+ * /guest-orders/lookup:
  *   post:
  *     summary: Lookup guest order by email and order number
  *     tags: [Guest Orders]
@@ -56,7 +56,7 @@ router.post('/lookup', guestOrderLookupValidator, guestOrderController.lookupOrd
 
 /**
  * @swagger
- * /api/v1/guest-orders/check-email:
+ * /guest-orders/check-email:
  *   post:
  *     summary: Check if email has guest orders
  *     tags: [Guest Orders]
