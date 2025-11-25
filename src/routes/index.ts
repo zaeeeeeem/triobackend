@@ -6,6 +6,7 @@ import customerRoutes from './customer.routes';
 import customerAddressRoutes from './customer-address.routes';
 import adminCustomerRoutes from './admin-customer.routes';
 import guestOrderRoutes from './guest-order.routes';
+import orderRoutes from './order.routes';
 
 const router = Router();
 
@@ -57,6 +58,9 @@ router.use('/customers/addresses', customerAddressRoutes);
 
 // Guest order routes
 router.use('/guest-orders', guestOrderRoutes);
+
+// Order management routes
+router.use('/orders', orderRoutes);
 
 // Admin customer management routes
 router.use('/admin/customers', adminCustomerRoutes);
