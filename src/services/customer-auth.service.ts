@@ -481,13 +481,17 @@ export class CustomerAuthService {
       emailVerified: customer.emailVerified,
     };
 
-    const accessToken = jwt.sign(payload, env.CUSTOMER_JWT_SECRET, {
-      expiresIn: env.CUSTOMER_JWT_EXPIRES_IN || '24h',
-    });
+    const accessToken = jwt.sign(
+      payload,
+      env.CUSTOMER_JWT_SECRET,
+      { expiresIn: env.CUSTOMER_JWT_EXPIRES_IN } as jwt.SignOptions
+    );
 
-    const refreshToken = jwt.sign({ sub: customer.id }, env.CUSTOMER_JWT_SECRET, {
-      expiresIn: env.CUSTOMER_REFRESH_EXPIRES_IN || '30d',
-    });
+    const refreshToken = jwt.sign(
+      { sub: customer.id },
+      env.CUSTOMER_JWT_SECRET,
+      { expiresIn: env.CUSTOMER_REFRESH_EXPIRES_IN } as jwt.SignOptions
+    );
 
     // Store refresh token
     const expiresAt = this.calculateTokenExpiration(env.CUSTOMER_REFRESH_EXPIRES_IN || '30d');

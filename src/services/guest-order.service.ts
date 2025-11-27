@@ -130,10 +130,19 @@ export class GuestOrderService {
               productName: true,
               quantity: true,
               price: true,
-              subtotal: true,
+              total: true,
             },
           },
-          shippingAddress: true,
+          shippingAddress: {
+            select: {
+              fullName: true,
+              address: true,
+              city: true,
+              state: true,
+              postalCode: true,
+              country: true,
+            }
+          },
         },
       });
 

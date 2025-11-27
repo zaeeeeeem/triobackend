@@ -24,7 +24,7 @@ export interface CustomerRequest extends Request {
  */
 export const authenticateCustomer = async (
   req: CustomerRequest,
-  res: Response,
+  _res: Response,
   next: NextFunction
 ): Promise<void> => {
   try {
@@ -94,7 +94,7 @@ export const authenticateCustomer = async (
  */
 export const requireEmailVerification = (
   req: CustomerRequest,
-  res: Response,
+  _res: Response,
   next: NextFunction
 ): void => {
   if (!req.customer) {
@@ -115,7 +115,7 @@ export const requireEmailVerification = (
  */
 export const optionalCustomerAuth = async (
   req: CustomerRequest,
-  res: Response,
+  _res: Response,
   next: NextFunction
 ): Promise<void> => {
   try {

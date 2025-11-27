@@ -1,7 +1,7 @@
 import bcrypt from 'bcryptjs';
 import prisma from '../config/database';
 import { logger } from '../utils/logger';
-import { NotFoundError, UnauthorizedError, ValidationError, ConflictError } from '../utils/errors';
+import { NotFoundError, UnauthorizedError, ConflictError } from '../utils/errors';
 import { emailService } from './email.service';
 import { customerAuthService } from './customer-auth.service';
 import {
@@ -10,7 +10,7 @@ import {
   CustomerQueryParams,
   CustomerStatistics,
 } from '../types/customer.types';
-import { Section } from '@prisma/client';
+// import { Section } from '@prisma/client';
 
 export class CustomerService {
   /**
@@ -53,7 +53,8 @@ export class CustomerService {
    * Update customer profile
    */
   async updateCustomer(customerId: string, data: UpdateCustomerDto) {
-    const existingCustomer = await this.getCustomerById(customerId);
+    // Verify customer exists
+    await this.getCustomerById(customerId);
 
     const customer = await prisma.customer.update({
       where: { id: customerId },

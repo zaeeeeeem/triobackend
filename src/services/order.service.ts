@@ -3,27 +3,19 @@ import { logger } from '../utils/logger';
 import {
   NotFoundError,
   ValidationError,
-  ConflictError,
 } from '../utils/errors';
 import {
   CreateOrderDto,
   CreateOrderItemDto,
   UpdateOrderDto,
-  UpdatePaymentStatusDto,
-  UpdateFulfillmentStatusDto,
   OrderQueryParams,
   OrderResponse,
   OrderListResponse,
-  OrderStats,
   OrderStatsBySection,
   CalculatedOrderPricing,
   ValidatedOrderItem,
-  DiscountCalculation,
-  OrderCustomerData,
-  PreparedOrderData,
 } from '../types/order.types';
 import { PaymentStatus, FulfillmentStatus, Section } from '@prisma/client';
-import { Decimal } from '@prisma/client/runtime/library';
 
 /**
  * Order Service
@@ -94,12 +86,20 @@ export class OrderService {
         where: { id: item.productId },
         select: {
           id: true,
-          name: true,
           sku: true,
           price: true,
           stockQuantity: true,
           section: true,
           deletedAt: true,
+          cafeProduct: {
+            select: { name: true }
+          },
+          flowersProduct: {
+            select: { name: true }
+          },
+          booksProduct: {
+            select: { title: true }
+          },
         },
       });
 
@@ -107,22 +107,25 @@ export class OrderService {
         throw new NotFoundError(`Product not found: ${item.productId}`);
       }
 
+      // Get product name from section-specific table
+      const productName = product.cafeProduct?.name || product.flowersProduct?.name || product.booksProduct?.title || 'Unknown Product';
+
       if (product.deletedAt) {
-        throw new ValidationError(`Product is no longer available: ${product.name}`);
+        throw new ValidationError(`Product is no longer available: ${productName}`);
       }
 
       // Validate section consistency
       if (product.section !== section) {
         throw new ValidationError(
           `All items must belong to the ${section} section. ` +
-          `Found item "${product.name}" from ${product.section} section.`
+          `Found item "${productName}" from ${product.section} section.`
         );
       }
 
       // Check inventory availability
       if (product.stockQuantity < item.quantity) {
         throw new ValidationError(
-          `Insufficient stock for "${product.name}". ` +
+          `Insufficient stock for "${productName}". ` +
           `Only ${product.stockQuantity} unit(s) available.`
         );
       }
@@ -130,7 +133,7 @@ export class OrderService {
       // Prevent unreasonably large orders (potential attack)
       if (item.quantity > 1000) {
         throw new ValidationError(
-          `Quantity for "${product.name}" exceeds maximum allowed (1000)`
+          `Quantity for "${productName}" exceeds maximum allowed (1000)`
         );
       }
 
@@ -154,7 +157,7 @@ export class OrderService {
 
       validatedItems.push({
         productId: product.id,
-        productName: product.name,
+        productName: productName,
         sku: product.sku,
         variantId: item.variantId,
         quantity: item.quantity,
@@ -184,8 +187,8 @@ export class OrderService {
    */
   private async validateShippingCost(
     providedCost: number = 0,
-    section: Section,
-    city?: string
+    _section: Section,
+    _city?: string
   ): Promise<number> {
     // Option A: Fixed rates per section
     // const shippingRates = {
@@ -331,11 +334,10 @@ export class OrderService {
     newStatus: FulfillmentStatus
   ): void {
     const allowedTransitions: Record<FulfillmentStatus, FulfillmentStatus[]> = {
-      UNFULFILLED: ['PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED'],
-      PROCESSING: ['SHIPPED', 'DELIVERED', 'CANCELLED', 'UNFULFILLED'],
-      SHIPPED: ['DELIVERED', 'CANCELLED'],
-      DELIVERED: [], // Cannot change from delivered
-      CANCELLED: ['UNFULFILLED'], // Can reactivate cancelled orders
+      UNFULFILLED: ['FULFILLED', 'PARTIAL', 'SCHEDULED'],
+      FULFILLED: ['UNFULFILLED'], // Can revert
+      PARTIAL: ['FULFILLED', 'UNFULFILLED'],
+      SCHEDULED: ['FULFILLED', 'UNFULFILLED', 'PARTIAL'],
     };
 
     const allowed = allowedTransitions[currentStatus];
@@ -429,7 +431,7 @@ export class OrderService {
 
       // 3. Apply discount code if provided
       let discountAmount = 0;
-      let discountCodeData = null;
+      // let discountCodeData = null;
       if (data.discountCode) {
         // TODO: Implement discount service integration
         // const discountCalc = await discountService.applyDiscount(
@@ -830,8 +832,7 @@ export class OrderService {
 
     // Business rule: Cannot delete fulfilled orders
     if (
-      order.fulfillmentStatus === FulfillmentStatus.DELIVERED ||
-      order.fulfillmentStatus === FulfillmentStatus.SHIPPED
+      order.fulfillmentStatus === FulfillmentStatus.FULFILLED
     ) {
       throw new ValidationError(
         'Cannot delete orders that have been shipped or delivered'
@@ -967,10 +968,9 @@ export class OrderService {
     // Calculate fulfillment status breakdown
     const fulfillmentStatus: Record<FulfillmentStatus, number> = {
       UNFULFILLED: 0,
-      PROCESSING: 0,
-      SHIPPED: 0,
-      DELIVERED: 0,
-      CANCELLED: 0,
+      FULFILLED: 0,
+      PARTIAL: 0,
+      SCHEDULED: 0,
     };
 
     orders.forEach((order) => {

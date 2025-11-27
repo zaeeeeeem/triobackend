@@ -174,7 +174,7 @@ AWS EC2 Instance (t2.micro)
 
 5. **Review and Launch**
    - Review all settings
-   - Click "Launch Instance"
+   - Click "Launch Instance".
    - Wait 2-3 minutes for instance to start
 
 6. **Get Your Server IP**
