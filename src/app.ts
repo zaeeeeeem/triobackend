@@ -11,8 +11,16 @@ import routes from './routes';
 
 const app: Application = express();
 
-// Security middleware
-app.use(helmet());
+// Security middleware - Configure Helmet for HTTP development/testing
+// NOTE: For production with HTTPS, use app.use(helmet()) with default settings
+app.use(
+  helmet({
+    contentSecurityPolicy: false, // Disable CSP to allow Swagger UI on HTTP
+    crossOriginEmbedderPolicy: false,
+    crossOriginOpenerPolicy: false,
+    crossOriginResourcePolicy: false,
+  })
+);
 
 // CORS configuration - allow frontend origins and same-origin for Swagger
 const allowedOrigins = [
