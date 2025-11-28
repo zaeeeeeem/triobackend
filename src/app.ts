@@ -11,7 +11,29 @@ import routes from './routes';
 
 const app: Application = express();
 
-// Security middleware - Configure Helmet for HTTP development/testing
+// ========================================
+// SWAGGER MUST BE REGISTERED FIRST
+// (before any middleware that adds security headers)
+// ========================================
+// Swagger documentation
+app.use(
+  '/api-docs',
+  swaggerUi.serve,
+  swaggerUi.setup(swaggerSpec, {
+    customCss: '.swagger-ui .topbar { display: none }',
+    customSiteTitle: 'TRIO API Documentation',
+  })
+);
+
+// Swagger JSON endpoint
+app.get('/api-docs.json', (_req, res) => {
+  res.setHeader('Content-Type', 'application/json');
+  res.send(swaggerSpec);
+});
+
+// ========================================
+// Security middleware - AFTER Swagger
+// ========================================
 // NOTE: For production with HTTPS, use app.use(helmet()) with default settings
 app.use(
   helmet({
@@ -55,22 +77,6 @@ app.use(generalLimiter);
 app.use((req, _res, next) => {
   logger.http(`${req.method} ${req.path}`);
   next();
-});
-
-// Swagger documentation
-app.use(
-  '/api-docs',
-  swaggerUi.serve,
-  swaggerUi.setup(swaggerSpec, {
-    customCss: '.swagger-ui .topbar { display: none }',
-    customSiteTitle: 'TRIO API Documentation',
-  })
-);
-
-// Swagger JSON endpoint
-app.get('/api-docs.json', (_req, res) => {
-  res.setHeader('Content-Type', 'application/json');
-  res.send(swaggerSpec);
 });
 
 // API routes
