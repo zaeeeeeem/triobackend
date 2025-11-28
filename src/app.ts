@@ -57,6 +57,12 @@ app.use(
       // Allow requests with no origin (like mobile apps, curl, Postman)
       if (!origin) return callback(null, true);
 
+      // Check if wildcard '*' is in allowed origins (allow all)
+      if (allowedOrigins.includes('*')) {
+        return callback(null, true);
+      }
+
+      // Check if specific origin is allowed
       if (allowedOrigins.includes(origin)) {
         callback(null, true);
       } else {
