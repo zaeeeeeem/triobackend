@@ -17,12 +17,8 @@ const options: swaggerJsdoc.Options = {
     },
     servers: [
       {
-        url: `http://localhost:${env.PORT || 5000}/api/${env.API_VERSION || 'v1'}`,
-        description: 'Development server',
-      },
-      {
-        url: `https://api.trio.com/api/${env.API_VERSION || 'v1'}`,
-        description: 'Production server',
+        url: `${env.SERVER_URL}/api/${env.API_VERSION || 'v1'}`,
+        description: 'API Server',
       },
     ],
     components: {

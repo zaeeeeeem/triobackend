@@ -8,6 +8,9 @@ export const env = {
   PORT: parseInt(process.env.PORT || '5000', 10),
   API_VERSION: process.env.API_VERSION || 'v1',
 
+  // Server URL (for Swagger and public access)
+  SERVER_URL: process.env.SERVER_URL || `http://localhost:${process.env.PORT || 5000}`,
+
   // Database
   DATABASE_URL: process.env.DATABASE_URL!,
 
