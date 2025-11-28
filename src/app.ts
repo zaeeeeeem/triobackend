@@ -47,7 +47,8 @@ app.use(
 // CORS configuration - allow frontend origins and same-origin for Swagger
 const allowedOrigins = [
   ...env.ALLOWED_ORIGINS,
-  `http://localhost:${env.PORT}`, // Allow same-origin for Swagger UI
+  `http://localhost:${env.PORT}`, // Allow same-origin for Swagger UI (local)
+  env.SERVER_URL, // Allow same-origin for Swagger UI (production/AWS)
 ];
 
 app.use(
@@ -59,6 +60,7 @@ app.use(
       if (allowedOrigins.includes(origin)) {
         callback(null, true);
       } else {
+        logger.warn(`CORS blocked request from origin: ${origin}`);
         callback(new Error('Not allowed by CORS'));
       }
     },
