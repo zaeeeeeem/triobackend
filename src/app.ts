@@ -1,5 +1,4 @@
 import express, { Application } from 'express';
-import cors from 'cors';
 import helmet from 'helmet';
 import swaggerUi from 'swagger-ui-express';
 import { env } from './config/env';
@@ -41,36 +40,6 @@ app.use(
     crossOriginEmbedderPolicy: false,
     crossOriginOpenerPolicy: false,
     crossOriginResourcePolicy: false,
-  })
-);
-
-// CORS configuration - allow frontend origins and same-origin for Swagger
-const allowedOrigins = [
-  ...env.ALLOWED_ORIGINS,
-  `http://localhost:${env.PORT}`, // Allow same-origin for Swagger UI (local)
-  env.SERVER_URL, // Allow same-origin for Swagger UI (production/AWS)
-];
-
-app.use(
-  cors({
-    origin: (origin, callback) => {
-      // Allow requests with no origin (like mobile apps, curl, Postman)
-      if (!origin) return callback(null, true);
-
-      // Check if wildcard '*' is in allowed origins (allow all)
-      if (allowedOrigins.includes('*')) {
-        return callback(null, true);
-      }
-
-      // Check if specific origin is allowed
-      if (allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        logger.warn(`CORS blocked request from origin: ${origin}`);
-        callback(new Error('Not allowed by CORS'));
-      }
-    },
-    credentials: true,
   })
 );
 
