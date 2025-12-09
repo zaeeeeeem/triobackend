@@ -1,620 +1,605 @@
 # Product Management API Documentation
 
-**Version:** 1.0.0
-**Last Updated:** 2025-11-20
+**Version:** 2.0.0
+**Last Updated:** 2025-12-04
 **Module:** Product Management
-**Base URL:** `/api/products`
+**Base URL:** `/api/v1/products`
+**Server URL:** `http://localhost:5000/api/v1/products` (configurable via `SERVER_URL` environment variable)
 
 ---
 
-## Table of Contents
+## 1. Overview
 
-1. [Overview](#overview)
-2. [Authentication & Authorization](#authentication--authorization)
-3. [Data Models](#data-models)
-4. [API Endpoints](#api-endpoints)
-   - [Product CRUD Operations](#product-crud-operations)
-   - [Product Search & Filtering](#product-search--filtering)
-   - [Product Variants](#product-variants)
-   - [Product Images](#product-images)
-   - [Bulk Operations](#bulk-operations)
-5. [Business Logic & Validation](#business-logic--validation)
-6. [Error Handling](#error-handling)
-7. [Examples](#examples)
+The Product Management module powers TRIO's multi-business catalog (Cafe, Flowers, Books) on a single unified API surface. The backend provides comprehensive SKU management, optimized search, inventory synchronization, and media workflows while keeping section-specific attributes isolated in dedicated tables.
 
----
+### Key capabilities
+- Multi-section create/read/update/delete with shared SKU, pricing, and inventory controls
+- Section-aware search, filtering, and pagination with Redis-backed caching (5 minute TTL)
+- Automatic availability calculation and inventory item creation per product
+- Role-based access controls (Admin, Manager, Staff) enforced at routing and query level
+- Rich media pipeline: validation, resizing (1200/600/200px), S3/MinIO upload, reordering, signed URL generation, and cleanup
+- Bulk management operations (update/delete) with rate limiting for operational safety
+- Signed URL generation for secure image access with configurable TTL
 
-## Overview
-
-The Product Management module handles all product-related operations for the TRIO Shopify platform, supporting three distinct business sections:
-- **Cafe** - Coffee, tea, pastries, and other food items
-- **Flowers** - Bouquets, arrangements, and floral products
-- **Books** - Physical and digital books
-
-Each section has unique attributes while sharing common product functionality.
-
-### Key Features
-- Multi-section product management (Cafe, Flowers, Books)
-- Advanced search and filtering
-- Inventory tracking and management
-- Product variants support
-- Image upload and management
-- Role-based access control
-- Real-time availability calculation
+### What's new in v2.0.0
+- Prisma Class Table Inheritance for section data (`cafe_products`, `flowers_products`, `books_products`)
+- Strict SKU validation with conflict detection and deletion guards when active orders exist
+- Consistent API responses through `ApiResponseHandler` (`success`, `data`, `message`/`error`)
+- Advanced filters (tags/collections/min-max price & stock, section attributes) with manager scoping
+- Unified media service enforcing `MAX_FILE_SIZE`, `MAX_FILES_PER_PRODUCT`, and consistent WebP output
+- S3/MinIO integration with signed URL support for secure private bucket access
 
 ---
 
-## Authentication & Authorization
+## 2. Authentication & Authorization
 
-### Authentication
+**Public Endpoints (No authentication required):**
+- `GET /api/v1/products` - List products (open for customer browsing)
+- `GET /api/v1/products/:id` - Get product details (open for customer browsing)
 
-All Product API endpoints require JWT authentication via Bearer token in the Authorization header:
+**Protected Endpoints (Authentication required):**
+All other endpoints require authentication via JWT bearer token:
 
 ```http
-Authorization: Bearer <jwt_token>
+Authorization: Bearer <JWT access token>
 ```
 
-### JWT Token Structure
+Decoded token payload:
 
 ```json
 {
   "sub": "user-uuid",
   "email": "admin@trio.com",
-  "role": "admin",
-  "permissions": [
-    "products:read",
-    "products:write",
-    "products:delete",
-    "inventory:read",
-    "inventory:write"
-  ],
-  "iat": 1700000000,
-  "exp": 1700000900
+  "role": "ADMIN",
+  "assignedSection": "CAFE",
+  "iat": 1707890000,
+  "exp": 1707893600
 }
 ```
 
-### Role-Based Access Control (RBAC)
+### Role & Access matrix
+| Route | Public (No Auth) | Staff | Manager | Admin |
+|-------|:----------------:|:-----:|:-------:|:-----:|
+| `GET /api/v1/products` | ✅ All sections | ✅ All sections | ✅ Restricted to `assignedSection` (if authenticated) | ✅ All sections |
+| `GET /:id` | ✅ Full details | ✅ Full details | ✅ Full details | ✅ Full details |
+| `POST /` | ❌ | ❌ | ✅ Must use own section | ✅ |
+| `PUT /:id` | ❌ | ❌ | ✅ Intended for own section only | ✅ |
+| `DELETE /:id` | ❌ | ❌ | ❌ | ✅ |
+| `POST /:id/images` | ❌ | ❌ | ✅ | ✅ |
+| `PUT /:id/images/reorder` | ❌ | ❌ | ✅ | ✅ |
+| `DELETE /:id/images/:imageId` | ❌ | ❌ | ✅ | ✅ |
+| `PATCH /bulk` | ❌ | ❌ | ❌ | ✅ |
+| `DELETE /bulk` | ❌ | ❌ | ❌ | ✅ |
 
-| Role | Read | Create | Update | Delete | Scope |
-|------|------|--------|--------|--------|-------|
-| **admin** | ✅ | ✅ | ✅ | ✅ | All sections |
-| **manager** | ✅ | ✅ | ✅ | ⚠️ Limited | Assigned section only |
-| **staff** | ✅ | ❌ | ❌ | ❌ | Read-only |
+**Important notes:**
+- **Public access:** Unauthenticated users (customers) can browse all products and view details for storefront display
+- **Manager scoping:** If a Manager is authenticated, list queries are automatically scoped to their `assignedSection`, regardless of supplied `section` parameter
+- **Protected operations:** Only Admin and Manager roles can create/update/delete products
+- Frontend should implement proper authorization checks on the client side for admin features
 
-### Required Permissions
+### Rate limits
+- **Global rate limit:** `RATE_LIMIT_MAX_REQUESTS` per `RATE_LIMIT_WINDOW_MS` (default: 100 requests/60 seconds)
+- **Create product** (`POST /`): 10 requests/minute per client
+- **Image uploads** (`POST /:id/images`): 5 requests/minute per client
+- **Bulk operations** (`PATCH /bulk`, `DELETE /bulk`): 5 requests per 5 minutes per client
 
-- `GET /api/products` → `products:read`
-- `POST /api/products` → `products:write`
-- `PUT /api/products/:id` → `products:write`
-- `DELETE /api/products/:id` → `products:delete`
-- `POST /api/products/:id/images` → `products:write`
+---
 
-### Section-Based Authorization
+## 3. Data model
 
-Managers can only access products in their assigned section:
-- **Cafe Manager** → Can only manage cafe products
-- **Flowers Manager** → Can only manage flower products
-- **Books Manager** → Can only manage book products
+### Enumerations
+- **`Section`**: `CAFE`, `FLOWERS`, `BOOKS`
+- **`ProductStatus`**: `ACTIVE`, `DRAFT`
+- **`ProductAvailability`**: `AVAILABLE`, `OUT_OF_STOCK`, `SEASONAL`, `PRE_ORDER`
 
-The backend must validate:
-```javascript
-if (user.role === 'manager' && product.section !== user.assignedSection) {
-  return 403 Forbidden;
+### Base product fields
+| Field | Type | Notes |
+|-------|------|-------|
+| `id` | `uuid` | Generated per product |
+| `sku` | `string` | Unique, validated by `/^[A-Z0-9-]+$/i`, indexed |
+| `section` | `Section` | Dictates which attribute table is populated |
+| `price` | `Decimal(10,2)` | Required, must be >= 0.01 and <= 999999 |
+| `compareAtPrice` | `Decimal(10,2)?` | Optional strike-through price |
+| `costPrice` | `Decimal(10,2)?` | Used by inventory cost tracking |
+| `stockQuantity` | `integer` | Current on-hand stock, must be >= 0 |
+| `trackQuantity` | `boolean` | Defaults `true` |
+| `continueSellingOutOfStock` | `boolean` | Defaults `false`; if true, availability stays `AVAILABLE` even at 0 stock |
+| `availability` | `ProductAvailability` | Auto-calculated by service, not user-managed |
+| `status` | `ProductStatus` | Defaults `DRAFT` |
+| `tags` | `string[]` | Indexed array |
+| `collections` | `string[]` | Similar to Shopify collections |
+| `createdAt` | `DateTime` | Auto-generated |
+| `updatedAt` | `DateTime` | Auto-updated |
+| `deletedAt` | `DateTime?` | Soft delete timestamp |
+| `createdBy` | `uuid` | User ID from JWT token |
+| `updatedBy` | `uuid?` | User ID from JWT token |
+
+### Relations
+- `images`: Array of `ProductImage` objects, sorted by `position` ascending
+- `variants`: Array of `ProductVariant` objects (placeholder for future API)
+- `inventory`: One-to-one relation with `InventoryItem`
+- `orderItems`: Array of `OrderItem` objects
+- Section-specific: One of `cafeProduct`, `flowersProduct`, or `booksProduct`
+
+### Section-specific attributes
+
+**Cafe (`cafe_products`)**
+| Attribute | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `name` | `string` | ✅ | Display name |
+| `description` | `string?` | | Optional rich text |
+| `category` | `string` | ✅ | Coffee/Tea/Pastries/etc. |
+| `origin` | `string?` | | Bean origin or ingredient source |
+| `roastLevel` | `string?` | | Light/Medium/Dark (coffee only) |
+| `caffeineContent` | `string?` | | High/Medium/Low/None |
+| `size` | `string?` | | e.g., `250g`, `Large` |
+| `temperature` | `string?` | | Hot/Iced/Cold Brew |
+| `allergens` | `string[]` | | e.g., `['Dairy', 'Nuts']` |
+| `calories` | `integer?` | | Nutritional info |
+
+**Flowers (`flowers_products`)**
+| Attribute | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `name` | `string` | ✅ | Arrangement title |
+| `description` | `string?` | | Optional |
+| `arrangementType` | `string` | ✅ | Bouquet/Vase/Basket/etc. |
+| `occasion` | `string?` | | Birthday/Sympathy/etc. |
+| `colors` | `string[]` | | Primary palette |
+| `flowerTypes` | `string[]` | | Roses/Lilies/etc. |
+| `size` | `string?` | | Small/Medium/Large |
+| `seasonality` | `string?` | | Availability season |
+| `careInstructions` | `string?` | | Text blob |
+| `vaseIncluded` | `boolean` | | Defaults `false` |
+
+**Books (`books_products`)**
+| Attribute | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `title` | `string` | ✅ | Display title |
+| `description` | `string?` | | Synopsis |
+| `author` | `string` | ✅ | Author name |
+| `isbn` | `string?` | | Unique when provided |
+| `publisher` | `string?` | | Publisher name |
+| `publishDate` | `DateTime?` | | Stored as UTC datetime |
+| `language` | `string` | | Defaults to `English` |
+| `pageCount` | `integer?` | | Number of pages |
+| `format` | `string` | ✅ | Hardcover/Paperback/eBook |
+| `genre` | `string[]` | ✅ | Array of genres, multiple allowed |
+| `condition` | `string` | | Defaults to `New` (New/Like New/Good/Fair) |
+| `edition` | `string?` | | Edition information |
+| `dimensions` | `string?` | | Free text format |
+| `weight` | `integer?` | | Weight in grams |
+
+### Related resources
+- **ProductImage**: Stores `originalUrl`, `mediumUrl`, `thumbnailUrl`, `altText`, and `position`. API responses automatically append `signedOriginalUrl`, `signedMediumUrl`, `signedThumbnailUrl` (pre-signed URLs valid for `S3_SIGNED_URL_TTL` seconds, default 600). Cascade delete is enabled when product is deleted.
+- **ProductVariant**: Placeholder relation for future variant APIs; currently only read via `GET /:id`. Structure includes `title`, `options` (JSON), `price`, `sku`, and `inventory`.
+- **InventoryItem**: Automatically created for each product with derived `productName`, `sku`, `section`, cost/selling price, location (`Main Warehouse`), and reorder defaults (`reorderPoint: 10`, `reorderQuantity: 50`). Stock mutations propagate availability and counts to this table.
+
+---
+
+## 4. Business logic & validation
+
+### Core validation rules
+- **SKU uniqueness**: Verified before insert/update. Conflicts return `409 CONFLICT` with error details.
+- **SKU format**: Must match pattern `/^[A-Z0-9-]+$/i` (alphanumeric characters and hyphens only).
+- **Price validation**: Must be between `0.01` and `999999`.
+- **Stock quantity**: Must be integer >= 0.
+- **Section-specific attributes**: Required when creating a product. The appropriate attribute object (`cafeAttributes`, `flowersAttributes`, or `booksAttributes`) must be provided based on the `section` value.
+
+### Automatic behaviors
+- **Availability calculation**: Automatically recalculated whenever `stockQuantity` or `continueSellingOutOfStock` changes:
+  - If `stockQuantity > 0`: `AVAILABLE`
+  - If `stockQuantity === 0` and `continueSellingOutOfStock === true`: `AVAILABLE`
+  - If `stockQuantity === 0` and `continueSellingOutOfStock === false`: `OUT_OF_STOCK`
+- **Inventory item creation**: Each product creation automatically triggers creation of a corresponding `InventoryItem` with:
+  - `productName` derived from section-specific name/title
+  - Initial `onHand` and `available` set to `stockQuantity`
+  - Default `location`: `Main Warehouse`
+  - Default `reorderPoint`: 10
+  - Default `reorderQuantity`: 50
+  - `status`: `IN_STOCK` or `OUT_OF_STOCK` based on stock
+
+### Deletion behavior
+- **Soft delete (default)**: `DELETE /:id` sets `deletedAt` timestamp. Product remains in database but excluded from queries.
+- **Hard delete**: `DELETE /:id?force=true` permanently removes product and cascades deletion across:
+  - Section-specific tables (`cafe_products`, `flowers_products`, `books_products`)
+  - All related images (`product_images`)
+  - All variants (`product_variants`)
+  - Inventory item (`inventory_items`)
+- **Active order guard**: Deletion fails with `409 CONFLICT` unless `force=true` when order items exist with fulfillment status `UNFULFILLED` or `PARTIAL`. Error response includes `activeOrders` count.
+
+### Caching strategy
+- **Redis caching**: List responses cached by full query signature for 5 minutes (300 seconds).
+- **Cache invalidation**: Any create/update/delete/bulk operation invalidates:
+  - All product list cache keys: `products:list:*`
+  - Section-specific cache keys: `products:<SECTION>:*`
+- **Signed URLs**: Generated on-demand for each API response, not cached.
+
+### Image upload & processing
+- **Allowed MIME types**: `image/jpeg`, `image/png`, `image/webp`
+- **Max file size**: `MAX_FILE_SIZE` (default: 5,242,880 bytes / 5 MB)
+- **Min dimensions**: 800px × 800px (before resizing)
+- **Max images per product**: `MAX_FILES_PER_PRODUCT` (default: 10)
+- **Processing pipeline**:
+  1. Validate file size and format
+  2. Validate minimum dimensions
+  3. Generate three variants:
+     - **Original**: 1200px (max), fit inside, quality 90%, WebP
+     - **Medium**: 600px × 600px, fit cover, quality 85%, WebP
+     - **Thumbnail**: 200px × 200px, fit cover, quality 80%, WebP
+  4. Upload to S3/MinIO at: `${AWS_S3_BASE_PREFIX}/products/<productId>/<size>-<uuid>-<timestamp>.webp`
+  5. Store URLs in database with incremental `position`
+- **Signed URLs**: Every API response includes pre-signed URLs (`signedOriginalUrl`, `signedMediumUrl`, `signedThumbnailUrl`) valid for `S3_SIGNED_URL_TTL` seconds (default: 600). Stored URLs remain private.
+
+---
+
+## 5. Query parameters & filtering
+
+All query parameters for `GET /api/v1/products`:
+
+| Parameter | Type | Default | Notes |
+|-----------|------|---------|-------|
+| `page` | integer | 1 | Page number for pagination |
+| `limit` | integer | 20 | Items per page (max: 100, controlled by `MAX_PAGE_SIZE`) |
+| `search` | string | - | Case-insensitive search on SKU, cafe/flowers names/descriptions, book title/author/description |
+| `section` | `Section` | - | Filter by section (ignored for Managers - they see only their `assignedSection`) |
+| `status` | `ProductStatus` | - | Filter by `ACTIVE` or `DRAFT` |
+| `availability` | `ProductAvailability` | - | Filter by availability status |
+| `minPrice` | number | - | Minimum price (inclusive) |
+| `maxPrice` | number | - | Maximum price (inclusive) |
+| `minStock` | integer | - | Minimum stock quantity (inclusive) |
+| `maxStock` | integer | - | Maximum stock quantity (inclusive) |
+| `tags` | string | - | Comma-separated tags (e.g., `organic,featured`). Performs `hasSome` match |
+| `collections` | string | - | Comma-separated collections. Performs `hasSome` match |
+| `sortBy` | string | `createdAt` | Sort field: `price`, `createdAt`, `updatedAt` |
+| `sortOrder` | string | `desc` | Sort order: `asc` or `desc` |
+| `mostDiscounted` | boolean | false | When `true`, returns top 7 products with highest discount percentage (ignores pagination) |
+
+### Section-specific filters
+
+**Cafe section (`section=CAFE`):**
+- `cafeCategory`: Filter by category (e.g., `Coffee`, `Tea`)
+- `caffeineContent`: Filter by caffeine content
+- `origin`: Filter by origin
+
+**Flowers section (`section=FLOWERS`):**
+- `arrangementType`: Filter by arrangement type
+- `occasion`: Filter by occasion
+
+**Books section (`section=BOOKS`):**
+- `author`: Filter by author (case-insensitive contains match)
+- `genre`: Filter by genre (checks if array contains the value)
+- `format`: Filter by format (e.g., `Hardcover`)
+- `condition`: Filter by condition
+- `language`: Filter by language
+
+### Special filters
+
+**Most Discounted (`mostDiscounted=true`):**
+- Returns exactly 7 products sorted by discount percentage (highest discount first)
+- Only includes products with `compareAtPrice` set and greater than 0
+- Discount calculation: `((compareAtPrice - price) / compareAtPrice) * 100`
+- Ignores pagination parameters (`page`, `limit`)
+- Can be combined with other filters (`section`, `status`, etc.)
+- Example: `GET /api/v1/products?mostDiscounted=true&section=BOOKS`
+
+### Response structure
+- `GET /` returns only the first image (`images[0]`) to keep payload light
+- `GET /:id` returns full image gallery and inventory snapshot
+- All responses include signed URLs for images
+
+---
+
+## 6. API Endpoints
+
+All responses follow this structure:
+```json
+{
+  "success": boolean,
+  "data": object,
+  "message": string,
+  "pagination": object (for list endpoints)
+}
+```
+
+Error responses:
+```json
+{
+  "success": false,
+  "error": {
+    "code": "ERROR_CODE",
+    "message": "Human-readable error message",
+    "details": {}
+  }
+}
+```
+
+### 6.1 List products — `GET /api/v1/products`
+
+**Access:** ✅ PUBLIC (No authentication required) - Open to all customers for storefront browsing
+
+**Authentication:** Optional (if authenticated Manager, automatically scoped to their `assignedSection`)
+
+**Query parameters:** See section 5 for all available filters
+
+**Response:** `200 OK`
+
+```json
+{
+  "success": true,
+  "data": {
+    "products": [
+      {
+        "id": "550e8400-e29b-41d4-a716-446655440001",
+        "sku": "CAF-CAP-001",
+        "section": "CAFE",
+        "price": "3.50",
+        "compareAtPrice": null,
+        "costPrice": "1.50",
+        "stockQuantity": 120,
+        "trackQuantity": true,
+        "continueSellingOutOfStock": false,
+        "availability": "AVAILABLE",
+        "status": "ACTIVE",
+        "tags": ["featured", "hot"],
+        "collections": ["winter-menu"],
+        "createdAt": "2025-12-04T10:00:00Z",
+        "updatedAt": "2025-12-04T10:00:00Z",
+        "deletedAt": null,
+        "createdBy": "user-uuid",
+        "updatedBy": "user-uuid",
+        "cafeProduct": {
+          "id": "cafe-uuid",
+          "productId": "550e8400-e29b-41d4-a716-446655440001",
+          "name": "Cappuccino",
+          "description": "Classic Italian cappuccino",
+          "category": "Coffee",
+          "origin": "Colombia",
+          "roastLevel": "Medium",
+          "caffeineContent": "High",
+          "size": "Medium",
+          "temperature": "Hot",
+          "allergens": ["Dairy"],
+          "calories": 120
+        },
+        "flowersProduct": null,
+        "booksProduct": null,
+        "images": [
+          {
+            "id": "img-uuid",
+            "productId": "550e8400-e29b-41d4-a716-446655440001",
+            "originalUrl": "app/uploads/products/.../original-xxx-123456.webp",
+            "mediumUrl": "app/uploads/products/.../medium-xxx-123456.webp",
+            "thumbnailUrl": "app/uploads/products/.../thumb-xxx-123456.webp",
+            "altText": "Cappuccino image 1",
+            "position": 0,
+            "createdAt": "2025-12-04T10:00:00Z",
+            "signedOriginalUrl": "https://...?X-Amz-Signature=...",
+            "signedMediumUrl": "https://...?X-Amz-Signature=...",
+            "signedThumbnailUrl": "https://...?X-Amz-Signature=..."
+          }
+        ]
+      }
+    ]
+  },
+  "pagination": {
+    "page": 1,
+    "limit": 20,
+    "totalPages": 5,
+    "totalItems": 82,
+    "hasNextPage": true,
+    "hasPrevPage": false
+  }
 }
 ```
 
 ---
 
-## Data Models
+### 6.2 Get product by ID — `GET /api/v1/products/:id`
 
-### Base Product Interface
+**Access:** ✅ PUBLIC (No authentication required) - Open to all customers for storefront browsing
 
-All products share these common fields:
+**Authentication:** Optional (not required)
 
-```typescript
-interface BaseProduct {
-  // Identifiers
-  id: string;                    // UUID
-  sku: string;                   // Unique SKU (e.g., "CAF-CAP-001")
+**Parameters:**
+- `id` (path): Product UUID
 
-  // Basic Information
-  name?: string;                 // Used for cafe & flowers
-  title?: string;                // Used for books
-  description: string;
-  section: "cafe" | "flowers" | "books";
+**Response:** `200 OK`
 
-  // Pricing
-  price: number;                 // In PKR (e.g., 350 for Rs 350)
-  compareAtPrice?: number;       // Original price for sale items
-  costPrice?: number;            // Cost to business
+Returns complete product details including:
+- All base product fields
+- Section-specific attributes
+- Full image gallery (all images, ordered by position)
+- Variants array
+- Inventory item snapshot
 
-  // Inventory
-  stockQuantity: number;
-  trackQuantity: boolean;
-  continueSellingOutOfStock: boolean;
-  availability: "available" | "out_of_stock" | "seasonal" | "pre_order";
-
-  // Media
-  images: ProductImage[];
-
-  // Organization
-  tags: string[];
-  collections: string[];
-  status: "active" | "draft";
-
-  // Metadata
-  createdAt: Date;
-  updatedAt: Date;
-  deletedAt?: Date;              // Soft delete timestamp
-  createdBy: string;             // User ID
-  updatedBy: string;             // User ID
-}
-```
-
-### Section-Specific Models
-
-#### 1. Cafe Product
-
-```typescript
-interface CafeProduct extends BaseProduct {
-  section: "cafe";
-  name: string;                  // Required (e.g., "Cappuccino")
-
-  cafeAttributes: {
-    // Category
-    category: "coffee" | "tea" | "pastry" | "sandwich" | "dessert" | "smoothie";
-
-    // Beverage-specific
-    caffeineContent: "none" | "low" | "medium" | "high";
-    sizes: string[];             // ["Small", "Medium", "Large"]
-    temperatureOptions: ("hot" | "iced" | "room")[];
-
-    // Nutritional & Ingredients
-    ingredients: string[];       // ["Espresso", "Milk", "Foam"]
-    allergens: string[];         // ["Dairy", "Nuts"]
-    calories?: number;           // Nutritional info
-
-    // Operations
-    preparationTime: string;     // "5 mins"
-  };
-}
-```
-
-**Example Cafe Product:**
 ```json
 {
-  "id": "550e8400-e29b-41d4-a716-446655440001",
-  "name": "Cappuccino",
-  "description": "Classic Italian espresso with steamed milk and foam",
-  "section": "cafe",
-  "price": 350,
-  "sku": "CAF-CAP-001",
-  "stockQuantity": 100,
-  "availability": "available",
+  "success": true,
+  "data": {
+    "product": {
+      "id": "550e8400-e29b-41d4-a716-446655440001",
+      "sku": "CAF-CAP-001",
+      "section": "CAFE",
+      "price": "3.50",
+      "compareAtPrice": null,
+      "costPrice": "1.50",
+      "stockQuantity": 120,
+      "trackQuantity": true,
+      "continueSellingOutOfStock": false,
+      "availability": "AVAILABLE",
+      "status": "ACTIVE",
+      "tags": ["featured", "hot"],
+      "collections": ["winter-menu"],
+      "createdAt": "2025-12-04T10:00:00Z",
+      "updatedAt": "2025-12-04T10:00:00Z",
+      "deletedAt": null,
+      "createdBy": "user-uuid",
+      "updatedBy": "user-uuid",
+      "cafeProduct": {
+        "id": "cafe-uuid",
+        "productId": "550e8400-e29b-41d4-a716-446655440001",
+        "name": "Cappuccino",
+        "description": "Classic Italian cappuccino",
+        "category": "Coffee",
+        "origin": "Colombia",
+        "roastLevel": "Medium",
+        "caffeineContent": "High",
+        "size": "Medium",
+        "temperature": "Hot",
+        "allergens": ["Dairy"],
+        "calories": 120
+      },
+      "flowersProduct": null,
+      "booksProduct": null,
+      "images": [
+        {
+          "id": "img-uuid-1",
+          "productId": "550e8400-e29b-41d4-a716-446655440001",
+          "originalUrl": "app/uploads/products/.../original-xxx-123456.webp",
+          "mediumUrl": "app/uploads/products/.../medium-xxx-123456.webp",
+          "thumbnailUrl": "app/uploads/products/.../thumb-xxx-123456.webp",
+          "altText": "Cappuccino image 1",
+          "position": 0,
+          "createdAt": "2025-12-04T10:00:00Z",
+          "signedOriginalUrl": "https://...?X-Amz-Signature=...",
+          "signedMediumUrl": "https://...?X-Amz-Signature=...",
+          "signedThumbnailUrl": "https://...?X-Amz-Signature=..."
+        },
+        {
+          "id": "img-uuid-2",
+          "position": 1,
+          "..."
+        }
+      ],
+      "variants": [],
+      "inventory": {
+        "id": "inv-uuid",
+        "productId": "550e8400-e29b-41d4-a716-446655440001",
+        "productName": "Cappuccino",
+        "sku": "CAF-CAP-001",
+        "section": "CAFE",
+        "onHand": 120,
+        "committed": 0,
+        "available": 120,
+        "incoming": 0,
+        "location": "Main Warehouse",
+        "costPrice": "1.50",
+        "sellingPrice": "3.50",
+        "status": "IN_STOCK",
+        "reorderPoint": 10,
+        "reorderQuantity": 50
+      }
+    }
+  }
+}
+```
+
+**Errors:**
+- `404 NOT_FOUND`: Product not found or soft-deleted
+
+---
+
+### 6.3 Create product — `POST /api/v1/products`
+
+**Access:** 🔒 PROTECTED - Admin, Manager (must use own section)
+
+**Authentication:** Required
+
+**Request body:**
+
+```json
+{
+  "sku": "CAF-ESP-001",
+  "section": "CAFE",
+  "price": 8.99,
+  "compareAtPrice": 9.99,
+  "costPrice": 5.00,
+  "stockQuantity": 200,
+  "trackQuantity": true,
+  "continueSellingOutOfStock": false,
+  "status": "DRAFT",
+  "tags": ["organic", "beans"],
+  "collections": ["limited-run"],
   "cafeAttributes": {
-    "category": "coffee",
-    "caffeineContent": "high",
-    "sizes": ["Small", "Medium", "Large"],
-    "temperatureOptions": ["hot", "iced"],
-    "ingredients": ["Espresso", "Milk", "Foam"],
-    "allergens": ["Dairy"],
-    "calories": 120,
-    "preparationTime": "5 mins"
-  },
-  "createdAt": "2025-01-15T10:30:00Z"
+    "name": "Espresso Blend",
+    "description": "Rich, smooth blend",
+    "category": "Coffee",
+    "origin": "Colombia",
+    "roastLevel": "Medium",
+    "caffeineContent": "High",
+    "size": "250g",
+    "temperature": "Hot",
+    "allergens": [],
+    "calories": 0
+  }
 }
 ```
 
-#### 2. Flowers Product
-
-```typescript
-interface FlowersProduct extends BaseProduct {
-  section: "flowers";
-  name: string;                  // Required (e.g., "Rose Elegance Bouquet")
-
-  flowersAttributes: {
-    // Product Details
-    flowerTypes: string[];       // ["Roses", "Tulips"]
-    colors: string[];            // ["Red", "White", "Pink"]
-    arrangementType: "bouquet" | "vase" | "basket" | "box" | "single_stem";
-
-    // Specifications
-    stemCount: number;           // Number of stems
-    vaseIncluded: boolean;
-
-    // Care & Occasions
-    occasions: string[];         // ["Wedding", "Birthday", "Anniversary"]
-    careInstructions: string;    // Care guide text
-    freshnessDate?: Date;        // Expected freshness until
-
-    // Delivery
-    deliveryOptions: ("standard" | "express" | "same_day")[];
-  };
-}
-```
-
-**Example Flowers Product:**
-```json
-{
-  "id": "550e8400-e29b-41d4-a716-446655440002",
-  "name": "Rose Elegance Bouquet",
-  "description": "A stunning arrangement of premium red roses",
-  "section": "flowers",
-  "price": 2500,
-  "sku": "FLO-ROS-001",
-  "stockQuantity": 25,
-  "availability": "available",
-  "flowersAttributes": {
-    "flowerTypes": ["Roses"],
-    "colors": ["Red"],
-    "arrangementType": "bouquet",
-    "stemCount": 12,
-    "vaseIncluded": false,
-    "occasions": ["Anniversary", "Birthday", "Apology"],
-    "careInstructions": "Keep in cool water, change water daily, trim stems at an angle",
-    "freshnessDate": "2025-11-27T00:00:00Z",
-    "deliveryOptions": ["standard", "express", "same_day"]
-  },
-  "createdAt": "2025-01-15T10:30:00Z"
-}
-```
-
-#### 3. Books Product
-
-```typescript
-interface BooksProduct extends BaseProduct {
-  section: "books";
-  title: string;                 // Required (e.g., "The Kite Runner")
-
-  booksAttributes: {
-    // Author & Publishing
-    author: string;              // "Khaled Hosseini"
-    isbn: string;                // "978-1594631931"
-    publisher: string;           // "Riverhead Books"
-    publicationDate: Date;
-
-    // Physical Details
-    pages: number;
-    language: string;            // "English", "Urdu"
-    format: "hardcover" | "paperback" | "ebook";
-    condition: "new" | "used_like_new" | "used_good" | "used_acceptable";
-
-    // Categories
-    genre: string[];             // ["Fiction", "Historical", "Drama"]
-  };
-}
-```
-
-**Example Books Product:**
-```json
-{
-  "id": "550e8400-e29b-41d4-a716-446655440003",
-  "title": "The Kite Runner",
-  "description": "A powerful story of friendship, betrayal, and redemption",
-  "section": "books",
-  "price": 950,
-  "sku": "BOO-FIC-001",
-  "stockQuantity": 35,
-  "availability": "available",
-  "booksAttributes": {
-    "author": "Khaled Hosseini",
-    "isbn": "978-1594631931",
-    "publisher": "Riverhead Books",
-    "publicationDate": "2003-05-29T00:00:00Z",
-    "pages": 371,
-    "language": "English",
-    "format": "paperback",
-    "condition": "new",
-    "genre": ["Fiction", "Historical", "Drama"]
-  },
-  "createdAt": "2025-01-15T10:30:00Z"
-}
-```
-
-### Product Image Model
-
-```typescript
-interface ProductImage {
-  id: string;
-  productId: string;
-
-  // Image URLs
-  original: string;              // Full size (e.g., 1200x1200)
-  medium: string;                // Medium size (600x600)
-  thumbnail: string;             // Thumbnail (200x200)
-
-  // Metadata
-  alt?: string;                  // Alt text for accessibility
-  position: number;              // Display order (0-indexed)
-
-  createdAt: Date;
-}
-```
-
-### Product Variant Model
-
-```typescript
-interface ProductVariant {
-  id: string;
-  productId: string;
-
-  // Variant Details
-  title: string;                 // "Large / Red"
-  options: {
-    size?: string;
-    color?: string;
-    [key: string]: string;
-  };
-
-  // Pricing & Inventory
-  price: number;
-  sku: string;
-  inventory: number;
-
-  createdAt: Date;
-  updatedAt: Date;
-}
-```
-
-### Inventory Item Model
-
-```typescript
-interface InventoryItem {
-  id: string;
-  productId: string;
-
-  // Product Info
-  productName: string;
-  sku: string;
-  section: "cafe" | "flowers" | "books";
-  variant?: string;
-
-  // Stock Quantities
-  onHand: number;                // Physical stock in location
-  committed: number;             // Reserved for pending orders
-  available: number;             // Calculated: onHand - committed
-  incoming: number;              // Expected from purchase orders
-
-  // Location & Supplier
-  location: string;              // "Main Warehouse", "Cafe Location"
-  supplier?: string;
-
-  // Pricing
-  costPrice: string;             // Cost from supplier
-  sellingPrice: string;          // Retail price
-
-  // Status
-  status: "in_stock" | "low_stock" | "out_of_stock" | "discontinued";
-
-  // Reorder Management
-  reorderPoint: number;          // Trigger reorder when stock drops below
-  reorderQuantity: number;       // Suggested order quantity
-  lastRestocked?: Date;
-
-  // Metadata
-  unit: string;                  // "units", "kg", "boxes"
-  barcode?: string;
-}
-```
-
----
-
-## API Endpoints
-
-### Product CRUD Operations
-
-#### 1. Create Product
-
-**Endpoint:** `POST /api/products`
-
-**Permission Required:** `products:write`
-
-**Request Body:**
-
-```typescript
-{
-  // Common fields
-  name?: string;                 // Required for cafe & flowers
-  title?: string;                // Required for books
-  description: string;
-  section: "cafe" | "flowers" | "books";
-  price: number;
-  sku: string;
-
-  // Inventory
-  stockQuantity: number;
-  trackQuantity?: boolean;       // default: true
-  continueSellingOutOfStock?: boolean;
-
-  // Optional fields
-  compareAtPrice?: number;
-  costPrice?: number;
-  tags?: string[];
-  collections?: string[];
-  status?: "active" | "draft";   // default: "draft"
-
-  // Section-specific attributes
-  cafeAttributes?: CafeAttributes;
-  flowersAttributes?: FlowersAttributes;
-  booksAttributes?: BooksAttributes;
-}
-```
+**Required fields:**
+- `sku`
+- `section`
+- `price`
+- `stockQuantity`
+- Section-specific attributes object (`cafeAttributes`, `flowersAttributes`, or `booksAttributes`)
 
 **Response:** `201 Created`
 
 ```json
 {
   "success": true,
+  "message": "Product created successfully",
   "data": {
     "product": {
-      "id": "550e8400-e29b-41d4-a716-446655440001",
-      "name": "Cappuccino",
-      "section": "cafe",
-      "price": 350,
-      "sku": "CAF-CAP-001",
-      "stockQuantity": 100,
-      "availability": "available",
-      "status": "draft",
-      "createdAt": "2025-11-20T10:30:00Z",
-      "updatedAt": "2025-11-20T10:30:00Z"
-    }
-  },
-  "message": "Product created successfully"
-}
-```
-
-**Validation Rules:**
-- `name` or `title`: Required, 2-255 characters
-- `description`: Optional, max 2000 characters
-- `price`: Required, must be > 0, max 999999
-- `section`: Required, must be one of: cafe, flowers, books
-- `sku`: Required, unique, alphanumeric with hyphens
-- `stockQuantity`: Required, >= 0
-
-**Error Responses:**
-
-```json
-// 400 Bad Request - Validation Error
-{
-  "success": false,
-  "error": {
-    "code": "VALIDATION_ERROR",
-    "message": "Validation failed",
-    "details": [
-      {
-        "field": "sku",
-        "message": "SKU already exists"
+      "id": "new-product-uuid",
+      "sku": "CAF-ESP-001",
+      "section": "CAFE",
+      "price": "8.99",
+      "availability": "AVAILABLE",
+      "status": "DRAFT",
+      "cafeProduct": {
+        "name": "Espresso Blend",
+        "category": "Coffee"
       },
-      {
-        "field": "price",
-        "message": "Price must be greater than 0"
+      "images": [],
+      "variants": [],
+      "inventory": {
+        "productId": "new-product-uuid",
+        "onHand": 200,
+        "available": 200,
+        "status": "IN_STOCK"
       }
-    ]
-  }
-}
-
-// 401 Unauthorized
-{
-  "success": false,
-  "error": {
-    "code": "UNAUTHORIZED",
-    "message": "Authentication required"
-  }
-}
-
-// 403 Forbidden
-{
-  "success": false,
-  "error": {
-    "code": "FORBIDDEN",
-    "message": "Insufficient permissions"
-  }
-}
-```
-
----
-
-#### 2. Get Product by ID
-
-**Endpoint:** `GET /api/products/:id`
-
-**Permission Required:** `products:read`
-
-**URL Parameters:**
-- `id` (string, required) - Product UUID
-
-**Response:** `200 OK`
-
-```json
-{
-  "success": true,
-  "data": {
-    "product": {
-      "id": "550e8400-e29b-41d4-a716-446655440001",
-      "name": "Cappuccino",
-      "description": "Classic Italian espresso with steamed milk and foam",
-      "section": "cafe",
-      "price": 350,
-      "compareAtPrice": 420,
-      "costPrice": 150,
-      "sku": "CAF-CAP-001",
-      "stockQuantity": 100,
-      "trackQuantity": true,
-      "continueSellingOutOfStock": false,
-      "availability": "available",
-      "status": "active",
-      "images": [
-        {
-          "id": "img-001",
-          "original": "https://cdn.trio.com/products/cappuccino-original.jpg",
-          "medium": "https://cdn.trio.com/products/cappuccino-medium.jpg",
-          "thumbnail": "https://cdn.trio.com/products/cappuccino-thumb.jpg",
-          "alt": "Cappuccino with latte art",
-          "position": 0
-        }
-      ],
-      "cafeAttributes": {
-        "category": "coffee",
-        "caffeineContent": "high",
-        "sizes": ["Small", "Medium", "Large"],
-        "temperatureOptions": ["hot", "iced"],
-        "ingredients": ["Espresso", "Milk", "Foam"],
-        "allergens": ["Dairy"],
-        "calories": 120,
-        "preparationTime": "5 mins"
-      },
-      "tags": ["coffee", "espresso", "popular"],
-      "collections": ["Hot Beverages", "Bestsellers"],
-      "createdAt": "2025-01-15T10:30:00Z",
-      "updatedAt": "2025-11-20T10:30:00Z",
-      "createdBy": "user-uuid-123"
     }
   }
 }
 ```
 
-**Error Responses:**
-
-```json
-// 404 Not Found
-{
-  "success": false,
-  "error": {
-    "code": "PRODUCT_NOT_FOUND",
-    "message": "Product with ID 550e8400-e29b-41d4-a716-446655440001 not found"
-  }
-}
-```
+**Errors:**
+- `400 VALIDATION_ERROR`: Invalid input data
+- `409 CONFLICT`: SKU already exists
 
 ---
 
-#### 3. Update Product
+### 6.4 Update product — `PUT /api/v1/products/:id`
 
-**Endpoint:** `PUT /api/products/:id`
+**Access:** 🔒 PROTECTED - Admin, Manager (intended for own section only)
 
-**Permission Required:** `products:write`
+**Authentication:** Required
 
-**Request Body:** (All fields optional, only include fields to update)
+**Parameters:**
+- `id` (path): Product UUID
 
-```typescript
+**Request body** (all fields optional except `id`):
+
+```json
 {
-  name?: string;
-  title?: string;
-  description?: string;
-  price?: number;
-  compareAtPrice?: number;
-  costPrice?: number;
-  stockQuantity?: number;
-  trackQuantity?: boolean;
-  continueSellingOutOfStock?: boolean;
-  status?: "active" | "draft";
-  tags?: string[];
-  collections?: string[];
-
-  // Section-specific attributes
-  cafeAttributes?: Partial<CafeAttributes>;
-  flowersAttributes?: Partial<FlowersAttributes>;
-  booksAttributes?: Partial<BooksAttributes>;
+  "price": 7.99,
+  "stockQuantity": 150,
+  "status": "ACTIVE",
+  "tags": ["featured", "signature"],
+  "cafeAttributes": {
+    "temperature": "Hot",
+    "size": "Medium"
+  }
 }
 ```
 
@@ -623,59 +608,47 @@ interface InventoryItem {
 ```json
 {
   "success": true,
+  "message": "Product updated successfully",
   "data": {
     "product": {
-      "id": "550e8400-e29b-41d4-a716-446655440001",
-      "name": "Cappuccino",
-      "price": 380,
-      "updatedAt": "2025-11-20T14:30:00Z"
+      // Full product object with all relations
     }
-  },
-  "message": "Product updated successfully"
-}
-```
-
-**Business Logic:**
-- Automatically recalculate `availability` based on `stockQuantity`
-- Update `updatedAt` timestamp
-- Set `updatedBy` to current user ID
-- Validate section-specific attributes if provided
-- Prevent changing `section` after creation
-
-**Error Responses:**
-
-```json
-// 400 Bad Request - Cannot change section
-{
-  "success": false,
-  "error": {
-    "code": "INVALID_OPERATION",
-    "message": "Product section cannot be changed after creation"
-  }
-}
-
-// 409 Conflict - SKU already exists
-{
-  "success": false,
-  "error": {
-    "code": "DUPLICATE_SKU",
-    "message": "SKU CAF-CAP-002 already exists for another product"
   }
 }
 ```
+
+**Notes:**
+- Partial updates supported for both base fields and section attributes
+- Changing `sku` triggers uniqueness validation
+- Changing `stockQuantity` or `continueSellingOutOfStock` recalculates `availability`
+- Returns full product details like `GET /:id`
+
+**Errors:**
+- `400 VALIDATION_ERROR`: Invalid input data
+- `404 NOT_FOUND`: Product not found
+- `409 CONFLICT`: New SKU already exists
 
 ---
 
-#### 4. Delete Product
+### 6.5 Delete product — `DELETE /api/v1/products/:id`
 
-**Endpoint:** `DELETE /api/products/:id`
+**Access:** 🔒 PROTECTED - Admin only
 
-**Permission Required:** `products:delete`
+**Authentication:** Required
 
-**Implementation:** Soft delete (set `deletedAt` timestamp)
+**Parameters:**
+- `id` (path): Product UUID
+- `force` (query, optional): `true` for hard delete, default `false` (soft delete)
 
-**Query Parameters:**
-- `force` (boolean, optional) - If true, permanently delete (admin only)
+**Soft delete (default):**
+```http
+DELETE /api/v1/products/:id
+```
+
+**Hard delete:**
+```http
+DELETE /api/v1/products/:id?force=true
+```
 
 **Response:** `200 OK`
 
@@ -685,84 +658,50 @@ interface InventoryItem {
   "message": "Product deleted successfully",
   "data": {
     "id": "550e8400-e29b-41d4-a716-446655440001",
-    "deletedAt": "2025-11-20T15:00:00Z"
+    "deletedAt": "2025-12-04T12:00:00Z"
   }
 }
 ```
 
-**Business Logic:**
-- Default: Soft delete by setting `deletedAt` timestamp
-- Check for active orders: Cannot delete if product is in pending/processing orders
-- If `force=true` and user is admin: Permanently delete from database
-- Cascade delete related images and variants (or archive them)
-
-**Error Responses:**
-
-```json
-// 409 Conflict - Product in use
-{
-  "success": false,
-  "error": {
-    "code": "PRODUCT_IN_USE",
-    "message": "Cannot delete product with active orders",
-    "details": {
-      "activeOrders": 5
+**Errors:**
+- `404 NOT_FOUND`: Product not found
+- `409 CONFLICT`: Product has active orders (unless `force=true`)
+  ```json
+  {
+    "success": false,
+    "error": {
+      "code": "CONFLICT",
+      "message": "Cannot delete product with active orders",
+      "details": {
+        "activeOrders": 3
+      }
     }
   }
-}
-```
+  ```
 
 ---
 
-### Product Search & Filtering
+### 6.6 Bulk update products — `PATCH /api/v1/products/bulk`
 
-#### 5. List Products with Filters
+**Access:** 🔒 PROTECTED - Admin only
 
-**Endpoint:** `GET /api/products`
+**Authentication:** Required
 
-**Permission Required:** `products:read`
+**Rate limit:** 5 requests per 5 minutes
 
-**Query Parameters:**
+**Request body:**
 
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `page` | integer | No | 1 | Page number for pagination |
-| `limit` | integer | No | 20 | Items per page (max: 100) |
-| `search` | string | No | - | Search in name, title, description, SKU |
-| `section` | string | No | - | Filter by section: cafe, flowers, books |
-| `status` | string | No | - | Filter by status: active, draft |
-| `availability` | string | No | - | Filter by availability status |
-| `sortBy` | string | No | createdAt | Sort field: createdAt, updatedAt, price, name, title |
-| `sortOrder` | string | No | desc | Sort order: asc, desc |
-| `minPrice` | number | No | - | Minimum price filter |
-| `maxPrice` | number | No | - | Maximum price filter |
-| `minStock` | number | No | - | Minimum stock quantity |
-| `maxStock` | number | No | - | Maximum stock quantity |
-| `tags` | string | No | - | Comma-separated tags |
-| `collections` | string | No | - | Comma-separated collections |
-
-**Section-Specific Query Parameters:**
-
-**For Cafe (`section=cafe`):**
-- `category` - coffee, tea, pastry, sandwich, dessert, smoothie
-- `caffeineContent` - none, low, medium, high
-
-**For Flowers (`section=flowers`):**
-- `arrangementType` - bouquet, vase, basket, box, single_stem
-- `colors` - Comma-separated colors
-- `vaseIncluded` - true, false
-
-**For Books (`section=books`):**
-- `author` - Author name (partial match)
-- `genre` - Comma-separated genres
-- `format` - hardcover, paperback, ebook
-- `condition` - new, used_like_new, used_good, used_acceptable
-- `language` - English, Urdu, etc.
-
-**Example Request:**
-
-```http
-GET /api/products?section=cafe&category=coffee&minPrice=300&maxPrice=500&page=1&limit=20&sortBy=price&sortOrder=asc
+```json
+{
+  "productIds": ["uuid-1", "uuid-2", "uuid-3"],
+  "updates": {
+    "status": "ACTIVE",
+    "tags": ["spring", "featured"],
+    "flowersAttributes": {
+      "seasonality": "Spring"
+    }
+  }
+}
 ```
 
 **Response:** `200 OK`
@@ -770,174 +709,59 @@ GET /api/products?section=cafe&category=coffee&minPrice=300&maxPrice=500&page=1&
 ```json
 {
   "success": true,
+  "message": "2 products updated successfully",
   "data": {
-    "products": [
+    "updated": 2,
+    "failed": 1,
+    "errors": [
       {
-        "id": "550e8400-e29b-41d4-a716-446655440001",
-        "name": "Cappuccino",
-        "section": "cafe",
-        "price": 350,
-        "sku": "CAF-CAP-001",
-        "stockQuantity": 100,
-        "availability": "available",
-        "status": "active",
-        "images": [
-          {
-            "thumbnail": "https://cdn.trio.com/products/cappuccino-thumb.jpg",
-            "alt": "Cappuccino"
-          }
-        ],
-        "cafeAttributes": {
-          "category": "coffee",
-          "caffeineContent": "high"
-        }
-      },
-      {
-        "id": "550e8400-e29b-41d4-a716-446655440005",
-        "name": "Latte",
-        "section": "cafe",
-        "price": 380,
-        "sku": "CAF-LAT-001",
-        "stockQuantity": 85,
-        "availability": "available",
-        "status": "active",
-        "cafeAttributes": {
-          "category": "coffee",
-          "caffeineContent": "high"
-        }
+        "productId": "uuid-3",
+        "error": "Product not found"
       }
-    ],
-    "pagination": {
-      "page": 1,
-      "limit": 20,
-      "totalPages": 3,
-      "totalProducts": 45,
-      "hasNextPage": true,
-      "hasPrevPage": false
-    },
-    "filters": {
-      "applied": {
-        "section": "cafe",
-        "category": "coffee",
-        "minPrice": 300,
-        "maxPrice": 500
-      }
-    }
+    ]
   }
 }
 ```
 
-**Implementation Notes:**
-
-1. **Search Logic:**
-   - Search is case-insensitive
-   - Search across: name, title, description, SKU
-   - For books: Also search author, ISBN
-   - Use full-text search or ILIKE for PostgreSQL
-
-2. **Filtering:**
-   - Apply filters using WHERE clauses
-   - Section-specific filters query JSONB columns
-   - Multiple values (tags, collections) use AND logic
-
-3. **Sorting:**
-   - Default sort: Most recent first (createdAt DESC)
-   - Support sorting by: createdAt, updatedAt, price, name/title, stockQuantity
-
-4. **Pagination:**
-   - Calculate `totalPages = Math.ceil(totalProducts / limit)`
-   - Return `hasNextPage` and `hasPrevPage` for UI
-
-5. **Performance:**
-   - Add database indexes on: section, status, availability, createdAt, price
-   - For JSONB queries, add GIN indexes on section-specific attribute columns
+**Notes:**
+- Each product update is processed individually
+- Failures for individual products don't stop the entire operation
+- Error array includes details for each failed update
 
 ---
 
-#### 6. Advanced Product Search
+### 6.7 Bulk delete products — `DELETE /api/v1/products/bulk`
 
-**Endpoint:** `GET /api/products/search`
+**Access:** 🔒 PROTECTED - Admin only
 
-**Permission Required:** `products:read`
+**Authentication:** Required
 
-**Query Parameters:**
-- `q` (string, required) - Search query
-- All other parameters from List Products endpoint
+**Rate limit:** 5 requests per 5 minutes
 
-**Features:**
-- Full-text search with relevance ranking
-- Fuzzy matching for typos
-- Keyword highlighting in results
+**Request body:**
+
+```json
+{
+  "productIds": ["uuid-1", "uuid-2", "uuid-3"]
+}
+```
+
+**Query parameters:**
+- `force` (optional): `true` for hard delete, default `false`
 
 **Response:** `200 OK`
 
 ```json
 {
   "success": true,
+  "message": "2 products deleted successfully",
   "data": {
-    "products": [
+    "deleted": 2,
+    "failed": 1,
+    "errors": [
       {
-        "id": "550e8400-e29b-41d4-a716-446655440001",
-        "name": "Cappuccino",
-        "relevance": 0.95,
-        "highlights": {
-          "name": "<mark>Cappuccino</mark>",
-          "description": "Classic Italian espresso with steamed milk..."
-        }
-      }
-    ],
-    "pagination": { /* ... */ },
-    "searchMetadata": {
-      "query": "cappuccino",
-      "executionTime": "45ms",
-      "totalResults": 12
-    }
-  }
-}
-```
-
----
-
-### Product Variants
-
-#### 7. Get Product Variants
-
-**Endpoint:** `GET /api/products/:id/variants`
-
-**Permission Required:** `products:read`
-
-**Response:** `200 OK`
-
-```json
-{
-  "success": true,
-  "data": {
-    "variants": [
-      {
-        "id": "var-001",
-        "productId": "550e8400-e29b-41d4-a716-446655440001",
-        "title": "Small / Hot",
-        "options": {
-          "size": "Small",
-          "temperature": "Hot"
-        },
-        "price": 300,
-        "sku": "CAF-CAP-001-S-H",
-        "inventory": 50,
-        "createdAt": "2025-01-15T10:30:00Z"
-      },
-      {
-        "id": "var-002",
-        "productId": "550e8400-e29b-41d4-a716-446655440001",
-        "title": "Large / Iced",
-        "options": {
-          "size": "Large",
-          "temperature": "Iced"
-        },
-        "price": 420,
-        "sku": "CAF-CAP-001-L-I",
-        "inventory": 30,
-        "createdAt": "2025-01-15T10:30:00Z"
+        "productId": "uuid-3",
+        "error": "Cannot delete product with active orders"
       }
     ]
   }
@@ -946,539 +770,145 @@ GET /api/products?section=cafe&category=coffee&minPrice=300&maxPrice=500&page=1&
 
 ---
 
-#### 8. Create Product Variant
+### 6.8 Upload product images — `POST /api/v1/products/:id/images`
 
-**Endpoint:** `POST /api/products/:id/variants`
+**Access:** 🔒 PROTECTED - Admin, Manager
 
-**Permission Required:** `products:write`
+**Authentication:** Required
 
-**Request Body:**
+**Rate limit:** 5 requests per minute
 
-```json
-{
-  "title": "Large / Iced",
-  "options": {
-    "size": "Large",
-    "temperature": "Iced"
-  },
-  "price": 420,
-  "sku": "CAF-CAP-001-L-I",
-  "inventory": 30
-}
-```
-
-**Response:** `201 Created`
-
-```json
-{
-  "success": true,
-  "data": {
-    "variant": {
-      "id": "var-003",
-      "productId": "550e8400-e29b-41d4-a716-446655440001",
-      "title": "Large / Iced",
-      "price": 420,
-      "sku": "CAF-CAP-001-L-I",
-      "inventory": 30,
-      "createdAt": "2025-11-20T10:30:00Z"
-    }
-  },
-  "message": "Variant created successfully"
-}
-```
-
-**Validation:**
-- `sku` must be unique across all products and variants
-- `price` must be > 0
-- `inventory` must be >= 0
-
----
-
-#### 9. Update Product Variant
-
-**Endpoint:** `PUT /api/products/:id/variants/:variantId`
-
-**Permission Required:** `products:write`
-
-**Request Body:**
-
-```json
-{
-  "price": 450,
-  "inventory": 25
-}
-```
-
-**Response:** `200 OK`
-
----
-
-#### 10. Delete Product Variant
-
-**Endpoint:** `DELETE /api/products/:id/variants/:variantId`
-
-**Permission Required:** `products:write`
-
-**Response:** `200 OK`
-
-```json
-{
-  "success": true,
-  "message": "Variant deleted successfully"
-}
-```
-
----
-
-### Product Images
-
-#### 11. Upload Product Images
-
-**Endpoint:** `POST /api/products/:id/images`
-
-**Permission Required:** `products:write`
+**Parameters:**
+- `id` (path): Product UUID
 
 **Content-Type:** `multipart/form-data`
 
-**Request:**
+**Request body:**
+- `images[]`: Array of image files (max 10 files per request)
 
-```http
-POST /api/products/550e8400-e29b-41d4-a716-446655440001/images
-Content-Type: multipart/form-data
+**Constraints:**
+- Max file size: 5 MB (configurable via `MAX_FILE_SIZE`)
+- Allowed formats: JPEG, PNG, WebP
+- Min dimensions: 800px × 800px
+- Max total images per product: 10 (configurable via `MAX_FILES_PER_PRODUCT`)
 
----boundary
-Content-Disposition: form-data; name="images"; filename="cappuccino.jpg"
-Content-Type: image/jpeg
-
-[binary data]
----boundary
-Content-Disposition: form-data; name="alt"
-
-Cappuccino with latte art
----boundary--
+**Example using cURL:**
+```bash
+curl -X POST \
+  http://localhost:5000/api/v1/products/:id/images \
+  -H "Authorization: Bearer <token>" \
+  -F "images=@image1.jpg" \
+  -F "images=@image2.png"
 ```
-
-**File Validation:**
-- **Supported formats:** JPG, PNG, WEBP
-- **Maximum file size:** 5 MB per image
-- **Minimum dimensions:** 800x800px
-- **Recommended dimensions:** 1200x1200px
-- **Maximum images per product:** 10
-
-**Processing:**
-1. Validate file type and size
-2. Scan for malware
-3. Generate 3 versions:
-   - **Original:** As uploaded (max 1200x1200)
-   - **Medium:** 600x600px
-   - **Thumbnail:** 200x200px
-4. Upload to CDN
-5. Store URLs in database
 
 **Response:** `201 Created`
 
 ```json
 {
   "success": true,
+  "message": "2 images uploaded successfully",
   "data": {
     "images": [
       {
-        "id": "img-001",
+        "id": "img-uuid-1",
         "productId": "550e8400-e29b-41d4-a716-446655440001",
-        "original": "https://cdn.trio.com/products/cappuccino-original.jpg",
-        "medium": "https://cdn.trio.com/products/cappuccino-medium.jpg",
-        "thumbnail": "https://cdn.trio.com/products/cappuccino-thumb.jpg",
-        "alt": "Cappuccino with latte art",
+        "originalUrl": "app/uploads/products/.../original-xxx-123456.webp",
+        "mediumUrl": "app/uploads/products/.../medium-xxx-123456.webp",
+        "thumbnailUrl": "app/uploads/products/.../thumb-xxx-123456.webp",
+        "altText": "Product image 1",
         "position": 0,
-        "createdAt": "2025-11-20T10:30:00Z"
-      }
-    ]
-  },
-  "message": "Images uploaded successfully"
-}
-```
-
-**Error Responses:**
-
-```json
-// 400 Bad Request - Invalid file
-{
-  "success": false,
-  "error": {
-    "code": "INVALID_FILE",
-    "message": "File type not supported. Only JPG, PNG, WEBP allowed."
-  }
-}
-
-// 413 Payload Too Large
-{
-  "success": false,
-  "error": {
-    "code": "FILE_TOO_LARGE",
-    "message": "File size exceeds 5 MB limit"
-  }
-}
-
-// 400 Bad Request - Too many images
-{
-  "success": false,
-  "error": {
-    "code": "MAX_IMAGES_EXCEEDED",
-    "message": "Maximum 10 images allowed per product"
-  }
-}
-```
-
----
-
-#### 12. Update Image Order
-
-**Endpoint:** `PUT /api/products/:id/images/reorder`
-
-**Permission Required:** `products:write`
-
-**Request Body:**
-
-```json
-{
-  "imageIds": ["img-003", "img-001", "img-002"]
-}
-```
-
-**Response:** `200 OK`
-
-```json
-{
-  "success": true,
-  "message": "Image order updated successfully"
-}
-```
-
----
-
-#### 13. Delete Product Image
-
-**Endpoint:** `DELETE /api/products/:id/images/:imageId`
-
-**Permission Required:** `products:write`
-
-**Response:** `200 OK`
-
-```json
-{
-  "success": true,
-  "message": "Image deleted successfully"
-}
-```
-
-**Business Logic:**
-- Remove all versions (original, medium, thumbnail) from CDN
-- Delete database record
-- Update position numbers for remaining images
-
----
-
-### Bulk Operations
-
-#### 14. Bulk Update Products
-
-**Endpoint:** `PATCH /api/products/bulk`
-
-**Permission Required:** `products:write`
-
-**Request Body:**
-
-```json
-{
-  "productIds": [
-    "550e8400-e29b-41d4-a716-446655440001",
-    "550e8400-e29b-41d4-a716-446655440002"
-  ],
-  "updates": {
-    "status": "active",
-    "tags": ["featured"]
-  }
-}
-```
-
-**Response:** `200 OK`
-
-```json
-{
-  "success": true,
-  "data": {
-    "updated": 2,
-    "failed": 0
-  },
-  "message": "2 products updated successfully"
-}
-```
-
----
-
-#### 15. Bulk Delete Products
-
-**Endpoint:** `DELETE /api/products/bulk`
-
-**Permission Required:** `products:delete`
-
-**Request Body:**
-
-```json
-{
-  "productIds": [
-    "550e8400-e29b-41d4-a716-446655440001",
-    "550e8400-e29b-41d4-a716-446655440002"
-  ]
-}
-```
-
-**Response:** `200 OK`
-
-```json
-{
-  "success": true,
-  "data": {
-    "deleted": 2,
-    "failed": 0,
-    "errors": []
-  },
-  "message": "2 products deleted successfully"
-}
-```
-
----
-
-#### 16. Export Products
-
-**Endpoint:** `GET /api/products/export`
-
-**Permission Required:** `products:read`
-
-**Query Parameters:**
-- `format` - csv, json, xlsx (default: csv)
-- `section` - Filter by section
-- All filter parameters from List Products
-
-**Response:** File download
-
-```http
-Content-Type: text/csv
-Content-Disposition: attachment; filename="products-export-2025-11-20.csv"
-
-id,name,section,sku,price,stock,availability
-550e8400-e29b-41d4-a716-446655440001,Cappuccino,cafe,CAF-CAP-001,350,100,available
-...
-```
-
----
-
-#### 17. Import Products
-
-**Endpoint:** `POST /api/products/import`
-
-**Permission Required:** `products:write`
-
-**Content-Type:** `multipart/form-data`
-
-**Request:**
-
-```http
-POST /api/products/import
-Content-Type: multipart/form-data
-
----boundary
-Content-Disposition: form-data; name="file"; filename="products.csv"
-Content-Type: text/csv
-
-[CSV data]
----boundary--
-```
-
-**Response:** `200 OK`
-
-```json
-{
-  "success": true,
-  "data": {
-    "imported": 45,
-    "failed": 2,
-    "errors": [
-      {
-        "row": 12,
-        "sku": "CAF-TEA-005",
-        "error": "SKU already exists"
+        "createdAt": "2025-12-04T10:00:00Z",
+        "signedOriginalUrl": "https://...?X-Amz-Signature=...",
+        "signedMediumUrl": "https://...?X-Amz-Signature=...",
+        "signedThumbnailUrl": "https://...?X-Amz-Signature=..."
       },
       {
-        "row": 28,
-        "sku": "FLO-ROS-020",
-        "error": "Invalid price value"
+        "id": "img-uuid-2",
+        "position": 1,
+        "..."
       }
     ]
-  },
-  "message": "45 products imported successfully, 2 failed"
-}
-```
-
-**CSV Format Requirements:**
-- Headers must match field names
-- Required fields: name/title, section, price, sku
-- Section-specific fields in separate columns
-- Date format: ISO 8601 (YYYY-MM-DD)
-
----
-
-## Business Logic & Validation
-
-### Availability Calculation
-
-The `availability` field is automatically calculated based on stock:
-
-```javascript
-function calculateAvailability(stockQuantity, manualStatus, continueSellingOutOfStock) {
-  // Manual statuses override calculation
-  if (manualStatus === 'seasonal' || manualStatus === 'pre_order') {
-    return manualStatus;
-  }
-
-  // Stock-based calculation
-  if (stockQuantity > 0) {
-    return 'available';
-  } else if (stockQuantity === 0) {
-    return continueSellingOutOfStock ? 'available' : 'out_of_stock';
   }
 }
 ```
 
-### Inventory Reservation Logic
-
-When an order is placed:
-
-```javascript
-// 1. Reserve stock (commit)
-available = onHand - committed;
-committed += orderQuantity;
-available -= orderQuantity;
-
-// 2. Order fulfilled
-onHand -= orderQuantity;
-committed -= orderQuantity;
-// available stays the same
-
-// 3. Order cancelled
-committed -= orderQuantity;
-available += orderQuantity;
-```
-
-### Low Stock Alerts
-
-Trigger alerts when stock drops below reorder point:
-
-```javascript
-if (availableQuantity <= reorderPoint) {
-  createAlert({
-    type: 'LOW_STOCK',
-    productId: product.id,
-    productName: product.name,
-    currentStock: availableQuantity,
-    reorderPoint: reorderPoint,
-    suggestedOrderQty: reorderQuantity
-  });
-}
-```
-
-### Price Validation
-
-```javascript
-// Price constraints
-price > 0
-price <= 999999
-price % 0.01 === 0  // Two decimal places max
-
-// Compare-at price
-if (compareAtPrice) {
-  compareAtPrice > price  // Must be higher than selling price
-}
-
-// Cost price
-if (costPrice) {
-  costPrice < price  // Cost should be less than selling price
-}
-```
-
-### SKU Generation & Validation
-
-**Format:** `{SECTION}-{CATEGORY}-{NUMBER}`
-
-**Examples:**
-- Cafe: `CAF-CAP-001`, `CAF-TEA-042`
-- Flowers: `FLO-ROS-001`, `FLO-MIX-015`
-- Books: `BOO-FIC-001`, `BOO-BIO-023`
-
-**Validation:**
-- Must be unique across all products and variants
-- Alphanumeric with hyphens only
-- 5-50 characters
-- Case-insensitive uniqueness check
-
-### Section-Specific Validation
-
-#### Cafe Products
-
-```javascript
-// Required fields
-cafeAttributes.category: Required
-cafeAttributes.caffeineContent: Required
-cafeAttributes.sizes: Array, min 1 item
-cafeAttributes.temperatureOptions: Array, min 1 item
-cafeAttributes.preparationTime: Required
-
-// Optional validation
-if (cafeAttributes.calories) {
-  cafeAttributes.calories > 0
-}
-```
-
-#### Flowers Products
-
-```javascript
-// Required fields
-flowersAttributes.flowerTypes: Array, min 1 item
-flowersAttributes.colors: Array, min 1 item
-flowersAttributes.arrangementType: Required
-flowersAttributes.stemCount: Required, > 0
-flowersAttributes.careInstructions: Required
-
-// Date validation
-if (flowersAttributes.freshnessDate) {
-  freshnessDate >= today
-}
-```
-
-#### Books Products
-
-```javascript
-// Required fields
-booksAttributes.author: Required, min 2 chars
-booksAttributes.publisher: Required
-booksAttributes.pages: Required, > 0
-booksAttributes.language: Required
-booksAttributes.format: Required
-booksAttributes.condition: Required
-booksAttributes.genre: Array, min 1 item
-
-// ISBN validation (optional field)
-if (booksAttributes.isbn) {
-  validateISBN(isbn)  // ISBN-10 or ISBN-13 format
-  isUnique(isbn)      // Must be unique
-}
-```
+**Errors:**
+- `400 VALIDATION_ERROR`: No files uploaded, file too large, invalid format, or dimensions too small
+- `404 NOT_FOUND`: Product not found
 
 ---
 
-## Error Handling
+### 6.9 Reorder product images — `PUT /api/v1/products/:id/images/reorder`
 
-### Standard Error Response Format
+**Access:** 🔒 PROTECTED - Admin, Manager
+
+**Authentication:** Required
+
+**Parameters:**
+- `id` (path): Product UUID
+
+**Request body:**
+
+```json
+{
+  "imageIds": ["img-uuid-2", "img-uuid-1", "img-uuid-3"]
+}
+```
+
+**Notes:**
+- Must include ALL existing image IDs for the product
+- Array order determines new `position` values (0, 1, 2, ...)
+
+**Response:** `200 OK`
+
+```json
+{
+  "success": true,
+  "message": "Images reordered successfully",
+  "data": null
+}
+```
+
+**Errors:**
+- `400 VALIDATION_ERROR`: Image IDs don't match product images (wrong count or invalid IDs)
+- `404 NOT_FOUND`: Product not found
+
+---
+
+### 6.10 Delete product image — `DELETE /api/v1/products/:id/images/:imageId`
+
+**Access:** 🔒 PROTECTED - Admin, Manager
+
+**Authentication:** Required
+
+**Parameters:**
+- `id` (path): Product UUID
+- `imageId` (path): Image UUID
+
+**Response:** `200 OK`
+
+```json
+{
+  "success": true,
+  "message": "Image deleted successfully",
+  "data": null
+}
+```
+
+**Notes:**
+- Deletes the database record
+- Attempts to delete all three S3 objects (original, medium, thumbnail)
+- Automatically reorders remaining images to compact positions
+
+**Errors:**
+- `400 VALIDATION_ERROR`: Image not found
+- `404 NOT_FOUND`: Product not found
+
+---
+
+## 7. Error handling
+
+### Standard error response format
 
 ```json
 {
@@ -1486,761 +916,224 @@ if (booksAttributes.isbn) {
   "error": {
     "code": "ERROR_CODE",
     "message": "Human-readable error message",
-    "details": {}  // Optional additional information
+    "details": {}
   }
 }
 ```
 
-### HTTP Status Codes
+### Error codes & HTTP status codes
 
-| Code | Status | Usage |
-|------|--------|-------|
-| 200 | OK | Successful GET, PUT, DELETE |
-| 201 | Created | Successful POST (resource created) |
-| 400 | Bad Request | Validation errors, invalid input |
-| 401 | Unauthorized | Missing or invalid authentication |
-| 403 | Forbidden | Insufficient permissions |
-| 404 | Not Found | Resource doesn't exist |
-| 409 | Conflict | Duplicate SKU, product in use |
-| 413 | Payload Too Large | File upload too large |
-| 422 | Unprocessable Entity | Business logic validation failed |
-| 429 | Too Many Requests | Rate limit exceeded |
-| 500 | Internal Server Error | Server error |
+| Scenario | HTTP Status | Error Code | Notes |
+|----------|-------------|------------|-------|
+| Missing or invalid JWT token | 401 | `UNAUTHORIZED` | Raised by `authenticate` middleware |
+| Insufficient permissions | 403 | `FORBIDDEN` | Raised by `authorize` middleware |
+| Validation error | 400 | `VALIDATION_ERROR` | Express Validator or service-level validation |
+| Product not found | 404 | `PRODUCT_NOT_FOUND` | Product doesn't exist or is soft-deleted |
+| SKU conflict | 409 | `CONFLICT` | Includes `details.sku` |
+| Active orders on delete | 409 | `CONFLICT` | Includes `details.activeOrders` count |
+| Image not found | 400 | `VALIDATION_ERROR` | When deleting unknown image |
+| Rate limit exceeded | 429 | `RATE_LIMIT_EXCEEDED` | Includes retry-after info |
+| No files uploaded | 400 | `NO_FILES` | When uploading images without files |
+| Internal server error | 500 | `INTERNAL_SERVER_ERROR` | Unexpected errors |
 
-### Error Codes
+### Example error responses
 
-| Code | Description |
-|------|-------------|
-| `VALIDATION_ERROR` | Input validation failed |
-| `UNAUTHORIZED` | Authentication required |
-| `FORBIDDEN` | Insufficient permissions |
-| `PRODUCT_NOT_FOUND` | Product doesn't exist |
-| `DUPLICATE_SKU` | SKU already exists |
-| `PRODUCT_IN_USE` | Cannot delete (has active orders) |
-| `INVALID_FILE` | Invalid file type or format |
-| `FILE_TOO_LARGE` | File exceeds size limit |
-| `MAX_IMAGES_EXCEEDED` | Too many images |
-| `INVALID_OPERATION` | Operation not allowed |
-| `INSUFFICIENT_STOCK` | Not enough inventory |
-| `DATABASE_ERROR` | Database operation failed |
-| `EXTERNAL_SERVICE_ERROR` | CDN/third-party service error |
-
-### Validation Error Details
-
+**Validation error:**
 ```json
 {
   "success": false,
   "error": {
     "code": "VALIDATION_ERROR",
-    "message": "Validation failed",
-    "details": [
-      {
-        "field": "price",
-        "message": "Price must be greater than 0",
-        "value": -100
-      },
-      {
-        "field": "sku",
-        "message": "SKU already exists",
-        "value": "CAF-CAP-001"
-      },
-      {
-        "field": "cafeAttributes.category",
-        "message": "Invalid category. Must be one of: coffee, tea, pastry, sandwich, dessert, smoothie",
-        "value": "beverage"
-      }
-    ]
+    "message": "Invalid input data",
+    "details": {
+      "errors": [
+        {
+          "field": "price",
+          "message": "Price must be at least 0.01"
+        },
+        {
+          "field": "sku",
+          "message": "SKU format is invalid"
+        }
+      ]
+    }
+  }
+}
+```
+
+**SKU conflict:**
+```json
+{
+  "success": false,
+  "error": {
+    "code": "CONFLICT",
+    "message": "SKU CAF-ESP-001 already exists",
+    "details": {
+      "sku": "CAF-ESP-001"
+    }
+  }
+}
+```
+
+**Active orders conflict:**
+```json
+{
+  "success": false,
+  "error": {
+    "code": "CONFLICT",
+    "message": "Cannot delete product with active orders",
+    "details": {
+      "activeOrders": 3
+    }
   }
 }
 ```
 
 ---
 
-## Examples
+## 8. Common workflows & best practices
 
-### Example 1: Create Cafe Product (Full)
+### For frontend developers
 
-**Request:**
+**1. Listing products with pagination:**
+```javascript
+// Get first page of products
+GET /api/v1/products?page=1&limit=20&section=CAFE&status=ACTIVE
 
-```http
-POST /api/products
-Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-Content-Type: application/json
+// Get products with search and filters
+GET /api/v1/products?search=coffee&minPrice=5&maxPrice=15&tags=organic
+```
 
+**2. Creating a new cafe product:**
+```javascript
+POST /api/v1/products
 {
-  "name": "Caramel Macchiato",
-  "description": "Smooth espresso with vanilla syrup, steamed milk, and caramel drizzle",
-  "section": "cafe",
-  "price": 420,
-  "compareAtPrice": 500,
-  "costPrice": 180,
-  "sku": "CAF-MAC-001",
-  "stockQuantity": 75,
-  "trackQuantity": true,
-  "continueSellingOutOfStock": false,
-  "status": "active",
-  "tags": ["coffee", "sweet", "popular"],
-  "collections": ["Hot Beverages", "Specialty Coffee"],
+  "sku": "CAF-LAT-001",
+  "section": "CAFE",
+  "price": 4.50,
+  "stockQuantity": 100,
+  "status": "DRAFT",
   "cafeAttributes": {
-    "category": "coffee",
-    "caffeineContent": "high",
-    "sizes": ["Small", "Medium", "Large"],
-    "temperatureOptions": ["hot", "iced"],
-    "ingredients": ["Espresso", "Milk", "Vanilla Syrup", "Caramel Sauce"],
-    "allergens": ["Dairy"],
-    "calories": 250,
-    "preparationTime": "6 mins"
+    "name": "Latte",
+    "category": "Coffee",
+    "temperature": "Hot"
   }
 }
+
+// Then upload images
+POST /api/v1/products/:id/images
+FormData with images[] files
 ```
 
-**Response:**
-
-```json
+**3. Updating product stock:**
+```javascript
+PUT /api/v1/products/:id
 {
-  "success": true,
-  "data": {
-    "product": {
-      "id": "550e8400-e29b-41d4-a716-446655440010",
-      "name": "Caramel Macchiato",
-      "section": "cafe",
-      "price": 420,
-      "sku": "CAF-MAC-001",
-      "stockQuantity": 75,
-      "availability": "available",
-      "status": "active",
-      "createdAt": "2025-11-20T10:30:00Z",
-      "updatedAt": "2025-11-20T10:30:00Z"
-    }
-  },
-  "message": "Product created successfully"
+  "stockQuantity": 50
+}
+// Availability is automatically recalculated
+```
+
+**4. Manager dashboard (auto-scoped):**
+```javascript
+// Manager with assignedSection="CAFE" will only see CAFE products
+// even if section parameter is omitted or set to something else
+GET /api/v1/products?page=1&limit=20
+```
+
+**5. Working with images:**
+```javascript
+// Display images using signed URLs (valid for 10 minutes by default)
+<img src={product.images[0].signedThumbnailUrl} />
+<img src={product.images[0].signedMediumUrl} />
+<img src={product.images[0].signedOriginalUrl} />
+
+// Reorder images after drag-and-drop
+PUT /api/v1/products/:id/images/reorder
+{
+  "imageIds": ["img-2", "img-1", "img-3"]  // New order
 }
 ```
 
----
-
-### Example 2: Create Flowers Product (Full)
-
-**Request:**
-
-```http
-POST /api/products
-Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-Content-Type: application/json
-
+**6. Bulk operations:**
+```javascript
+// Activate multiple products
+PATCH /api/v1/products/bulk
 {
-  "name": "Spring Mix Vase",
-  "description": "A delightful mix of seasonal spring flowers in an elegant glass vase",
-  "section": "flowers",
-  "price": 3800,
-  "sku": "FLO-MIX-001",
-  "stockQuantity": 15,
-  "trackQuantity": true,
-  "status": "active",
-  "tags": ["seasonal", "spring", "gift"],
-  "collections": ["Spring Collection", "Vase Arrangements"],
-  "flowersAttributes": {
-    "flowerTypes": ["Tulips", "Daffodils", "Hyacinths", "Freesias"],
-    "colors": ["Yellow", "Pink", "White", "Purple"],
-    "arrangementType": "vase",
-    "stemCount": 20,
-    "vaseIncluded": true,
-    "occasions": ["Birthday", "Thank You", "Get Well"],
-    "careInstructions": "Keep in cool location away from direct sunlight. Change water every 2 days. Trim stems at an angle weekly.",
-    "freshnessDate": "2025-11-27T00:00:00Z",
-    "deliveryOptions": ["standard", "express", "same_day"]
+  "productIds": ["uuid-1", "uuid-2", "uuid-3"],
+  "updates": {
+    "status": "ACTIVE",
+    "tags": ["featured"]
   }
 }
-```
 
-**Response:**
-
-```json
-{
-  "success": true,
-  "data": {
-    "product": {
-      "id": "550e8400-e29b-41d4-a716-446655440020",
-      "name": "Spring Mix Vase",
-      "section": "flowers",
-      "price": 3800,
-      "sku": "FLO-MIX-001",
-      "stockQuantity": 15,
-      "availability": "available",
-      "status": "active",
-      "createdAt": "2025-11-20T10:30:00Z"
-    }
-  },
-  "message": "Product created successfully"
+// Check response for any failures
+if (response.data.failed > 0) {
+  console.log("Some products failed:", response.data.errors);
 }
 ```
 
----
+### Important notes
 
-### Example 3: Create Books Product (Full)
-
-**Request:**
-
-```http
-POST /api/products
-Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-Content-Type: application/json
-
-{
-  "title": "Atomic Habits",
-  "description": "An Easy & Proven Way to Build Good Habits & Break Bad Ones. Tiny changes, remarkable results.",
-  "section": "books",
-  "price": 1450,
-  "sku": "BOO-SEL-001",
-  "stockQuantity": 40,
-  "trackQuantity": true,
-  "status": "active",
-  "tags": ["bestseller", "self-help", "productivity"],
-  "collections": ["Bestsellers", "Self Improvement"],
-  "booksAttributes": {
-    "author": "James Clear",
-    "isbn": "978-0735211292",
-    "publisher": "Avery",
-    "publicationDate": "2018-10-16T00:00:00Z",
-    "pages": 320,
-    "language": "English",
-    "format": "hardcover",
-    "condition": "new",
-    "genre": ["Self-Help", "Psychology", "Business"]
-  }
-}
-```
-
-**Response:**
-
-```json
-{
-  "success": true,
-  "data": {
-    "product": {
-      "id": "550e8400-e29b-41d4-a716-446655440030",
-      "title": "Atomic Habits",
-      "section": "books",
-      "price": 1450,
-      "sku": "BOO-SEL-001",
-      "stockQuantity": 40,
-      "availability": "available",
-      "status": "active",
-      "createdAt": "2025-11-20T10:30:00Z"
-    }
-  },
-  "message": "Product created successfully"
-}
-```
+- **Public read access**: Product listing and detail endpoints are publicly accessible without authentication for customer browsing. No JWT token required for `GET` requests.
+- **Always use signed URLs** for image display. Stored URLs (`originalUrl`, `mediumUrl`, `thumbnailUrl`) won't work for private buckets.
+- **Refresh signed URLs** after 10 minutes (default TTL). Fetch the product again to get new signed URLs.
+- **Handle pagination properly**: Check `pagination.hasNextPage` and `pagination.totalPages` for navigation.
+- **Manager scoping is automatic**: Managers can only see/modify products in their assigned section on list queries.
+- **Cache consideration**: List results are cached for 5 minutes. If you update a product and immediately list again, you might see stale data briefly.
+- **Prefer full product fetch** after create/update if you need inventory, variants, or all images. The list endpoint only returns the first image.
+- **Error handling**: Always check `success` field and handle error responses appropriately.
+- **Rate limits**: Implement exponential backoff for 429 responses.
+- **Admin operations**: All create/update/delete operations require authentication and appropriate role permissions.
 
 ---
 
-### Example 4: Search Cafe Products with Filters
+## 9. Environment variables
 
-**Request:**
+These environment variables control Product Management behavior:
 
-```http
-GET /api/products?section=cafe&category=coffee&caffeineContent=high&minPrice=300&maxPrice=500&availability=available&sortBy=price&sortOrder=asc&page=1&limit=10
-Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-```
+### Required
+- `DATABASE_URL`: PostgreSQL connection string
+- `JWT_SECRET`: JWT signing secret for authentication
+- `AWS_S3_BUCKET`: S3 or MinIO bucket name
+- `AWS_S3_ACCESS_KEY_ID`: S3 access key
+- `AWS_S3_SECRET_ACCESS_KEY`: S3 secret key
 
-**Response:**
-
-```json
-{
-  "success": true,
-  "data": {
-    "products": [
-      {
-        "id": "550e8400-e29b-41d4-a716-446655440001",
-        "name": "Cappuccino",
-        "section": "cafe",
-        "price": 350,
-        "sku": "CAF-CAP-001",
-        "stockQuantity": 100,
-        "availability": "available",
-        "images": [
-          {
-            "thumbnail": "https://cdn.trio.com/products/cappuccino-thumb.jpg"
-          }
-        ],
-        "cafeAttributes": {
-          "category": "coffee",
-          "caffeineContent": "high"
-        }
-      },
-      {
-        "id": "550e8400-e29b-41d4-a716-446655440005",
-        "name": "Latte",
-        "section": "cafe",
-        "price": 380,
-        "sku": "CAF-LAT-001",
-        "stockQuantity": 85,
-        "availability": "available",
-        "cafeAttributes": {
-          "category": "coffee",
-          "caffeineContent": "high"
-        }
-      },
-      {
-        "id": "550e8400-e29b-41d4-a716-446655440010",
-        "name": "Caramel Macchiato",
-        "section": "cafe",
-        "price": 420,
-        "sku": "CAF-MAC-001",
-        "stockQuantity": 75,
-        "availability": "available",
-        "cafeAttributes": {
-          "category": "coffee",
-          "caffeineContent": "high"
-        }
-      }
-    ],
-    "pagination": {
-      "page": 1,
-      "limit": 10,
-      "totalPages": 1,
-      "totalProducts": 3,
-      "hasNextPage": false,
-      "hasPrevPage": false
-    },
-    "filters": {
-      "applied": {
-        "section": "cafe",
-        "category": "coffee",
-        "caffeineContent": "high",
-        "minPrice": 300,
-        "maxPrice": 500,
-        "availability": "available"
-      }
-    }
-  }
-}
-```
+### Optional (with defaults)
+- `SERVER_URL`: Base server URL (default: `http://localhost:5000`)
+- `AWS_S3_REGION`: S3 region (default: `us-east-1`)
+- `AWS_S3_BASE_PREFIX`: Storage prefix (default: `app/uploads`)
+- `AWS_S3_ENDPOINT`: Custom S3 endpoint for MinIO/compatible services
+- `AWS_S3_FORCE_PATH_STYLE`: Use path-style URLs (default: `false`, set to `true` for MinIO)
+- `AWS_S3_PUBLIC_URL`: Public base URL for S3 objects (for MinIO)
+- `S3_SIGNED_URL_TTL`: Signed URL expiration in seconds (default: `600`)
+- `MAX_FILE_SIZE`: Max upload file size in bytes (default: `5242880` = 5MB)
+- `MAX_FILES_PER_PRODUCT`: Max images per product (default: `10`)
+- `DEFAULT_PAGE_SIZE`: Default pagination limit (default: `20`)
+- `MAX_PAGE_SIZE`: Maximum pagination limit (default: `100`)
+- `RATE_LIMIT_WINDOW_MS`: Rate limit window in milliseconds (default: `60000`)
+- `RATE_LIMIT_MAX_REQUESTS`: Max requests per window (default: `100`)
+- `REDIS_HOST`: Redis host (default: `localhost`)
+- `REDIS_PORT`: Redis port (default: `6379`)
 
 ---
 
-### Example 5: Upload Product Images
+## 10. Changelog
 
-**Request:**
-
-```http
-POST /api/products/550e8400-e29b-41d4-a716-446655440001/images
-Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-Content-Type: multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW
-
-------WebKitFormBoundary7MA4YWxkTrZu0gW
-Content-Disposition: form-data; name="images"; filename="cappuccino-1.jpg"
-Content-Type: image/jpeg
-
-[binary image data]
-------WebKitFormBoundary7MA4YWxkTrZu0gW
-Content-Disposition: form-data; name="images"; filename="cappuccino-2.jpg"
-Content-Type: image/jpeg
-
-[binary image data]
-------WebKitFormBoundary7MA4YWxkTrZu0gW
-Content-Disposition: form-data; name="alt"
-
-Cappuccino with latte art
-------WebKitFormBoundary7MA4YWxkTrZu0gW--
-```
-
-**Response:**
-
-```json
-{
-  "success": true,
-  "data": {
-    "images": [
-      {
-        "id": "img-001",
-        "productId": "550e8400-e29b-41d4-a716-446655440001",
-        "original": "https://cdn.trio.com/products/550e8400-e29b-41d4-a716-446655440001/cappuccino-1-original.jpg",
-        "medium": "https://cdn.trio.com/products/550e8400-e29b-41d4-a716-446655440001/cappuccino-1-medium.jpg",
-        "thumbnail": "https://cdn.trio.com/products/550e8400-e29b-41d4-a716-446655440001/cappuccino-1-thumb.jpg",
-        "alt": "Cappuccino with latte art",
-        "position": 0,
-        "createdAt": "2025-11-20T10:35:00Z"
-      },
-      {
-        "id": "img-002",
-        "productId": "550e8400-e29b-41d4-a716-446655440001",
-        "original": "https://cdn.trio.com/products/550e8400-e29b-41d4-a716-446655440001/cappuccino-2-original.jpg",
-        "medium": "https://cdn.trio.com/products/550e8400-e29b-41d4-a716-446655440001/cappuccino-2-medium.jpg",
-        "thumbnail": "https://cdn.trio.com/products/550e8400-e29b-41d4-a716-446655440001/cappuccino-2-thumb.jpg",
-        "alt": "Cappuccino with latte art",
-        "position": 1,
-        "createdAt": "2025-11-20T10:35:00Z"
-      }
-    ]
-  },
-  "message": "2 images uploaded successfully"
-}
-```
+### Version 2.0.0 (2025-12-04)
+- Initial comprehensive API documentation
+- Prisma Class Table Inheritance for multi-section products
+- S3/MinIO integration with signed URL support
+- Redis caching for list queries
+- Bulk operations with detailed error reporting
+- Automatic inventory item creation
+- Soft delete with active order guards
+- Image upload with automatic resizing and WebP conversion
+- Role-based access control with manager section scoping
+- Comprehensive validation and error handling
 
 ---
 
-### Example 6: Update Product (Partial Update)
+## 11. Support & feedback
 
-**Request:**
-
-```http
-PUT /api/products/550e8400-e29b-41d4-a716-446655440001
-Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-Content-Type: application/json
-
-{
-  "price": 380,
-  "stockQuantity": 85,
-  "tags": ["coffee", "espresso", "popular", "featured"]
-}
-```
-
-**Response:**
-
-```json
-{
-  "success": true,
-  "data": {
-    "product": {
-      "id": "550e8400-e29b-41d4-a716-446655440001",
-      "name": "Cappuccino",
-      "price": 380,
-      "stockQuantity": 85,
-      "availability": "available",
-      "tags": ["coffee", "espresso", "popular", "featured"],
-      "updatedAt": "2025-11-20T14:30:00Z"
-    }
-  },
-  "message": "Product updated successfully"
-}
-```
-
----
-
-## Database Schema
-
-### Products Table
-
-```sql
-CREATE TABLE products (
-  -- Identifiers
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  sku VARCHAR(100) UNIQUE NOT NULL,
-
-  -- Basic Information
-  name VARCHAR(255),
-  title VARCHAR(255),
-  description TEXT,
-  section VARCHAR(20) NOT NULL CHECK (section IN ('cafe', 'flowers', 'books')),
-
-  -- Pricing
-  price DECIMAL(10, 2) NOT NULL CHECK (price > 0),
-  compare_at_price DECIMAL(10, 2) CHECK (compare_at_price > price),
-  cost_price DECIMAL(10, 2) CHECK (cost_price < price),
-
-  -- Inventory
-  stock_quantity INTEGER NOT NULL DEFAULT 0 CHECK (stock_quantity >= 0),
-  track_quantity BOOLEAN DEFAULT true,
-  continue_selling_out_of_stock BOOLEAN DEFAULT false,
-  availability VARCHAR(20) DEFAULT 'available',
-
-  -- Status & Organization
-  status VARCHAR(20) DEFAULT 'draft' CHECK (status IN ('active', 'draft')),
-  tags TEXT[],
-  collections TEXT[],
-
-  -- Section-specific attributes (JSONB for flexibility)
-  cafe_attributes JSONB,
-  flowers_attributes JSONB,
-  books_attributes JSONB,
-
-  -- Metadata
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  deleted_at TIMESTAMP WITH TIME ZONE,
-  created_by UUID REFERENCES users(id),
-  updated_by UUID REFERENCES users(id),
-
-  -- Indexes
-  CONSTRAINT valid_section_attributes CHECK (
-    (section = 'cafe' AND cafe_attributes IS NOT NULL) OR
-    (section = 'flowers' AND flowers_attributes IS NOT NULL) OR
-    (section = 'books' AND books_attributes IS NOT NULL)
-  )
-);
-
--- Indexes for performance
-CREATE INDEX idx_products_section ON products(section);
-CREATE INDEX idx_products_sku ON products(sku);
-CREATE INDEX idx_products_status ON products(status);
-CREATE INDEX idx_products_availability ON products(availability);
-CREATE INDEX idx_products_created_at ON products(created_at DESC);
-CREATE INDEX idx_products_price ON products(price);
-CREATE INDEX idx_products_deleted_at ON products(deleted_at) WHERE deleted_at IS NULL;
-
--- GIN indexes for JSONB columns (for section-specific queries)
-CREATE INDEX idx_cafe_attributes ON products USING GIN (cafe_attributes);
-CREATE INDEX idx_flowers_attributes ON products USING GIN (flowers_attributes);
-CREATE INDEX idx_books_attributes ON products USING GIN (books_attributes);
-
--- Full-text search index
-CREATE INDEX idx_products_search ON products USING GIN (
-  to_tsvector('english', COALESCE(name, '') || ' ' || COALESCE(title, '') || ' ' || COALESCE(description, ''))
-);
-```
-
-### Product Images Table
-
-```sql
-CREATE TABLE product_images (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-
-  -- Image URLs
-  original_url VARCHAR(500) NOT NULL,
-  medium_url VARCHAR(500) NOT NULL,
-  thumbnail_url VARCHAR(500) NOT NULL,
-
-  -- Metadata
-  alt_text VARCHAR(255),
-  position INTEGER NOT NULL DEFAULT 0,
-
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-
-  -- Ensure position uniqueness per product
-  UNIQUE(product_id, position)
-);
-
-CREATE INDEX idx_product_images_product ON product_images(product_id);
-```
-
-### Product Variants Table
-
-```sql
-CREATE TABLE product_variants (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-
-  title VARCHAR(255) NOT NULL,
-  options JSONB NOT NULL,
-
-  price DECIMAL(10, 2) NOT NULL CHECK (price > 0),
-  sku VARCHAR(100) UNIQUE NOT NULL,
-  inventory INTEGER NOT NULL DEFAULT 0 CHECK (inventory >= 0),
-
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
-CREATE INDEX idx_product_variants_product ON product_variants(product_id);
-CREATE INDEX idx_product_variants_sku ON product_variants(sku);
-```
-
----
-
-## Security Considerations
-
-### 1. Price Manipulation Prevention
-
-```javascript
-// NEVER trust client prices for order calculations
-// Always fetch from database
-async function createOrder(orderData) {
-  // ❌ WRONG - Using client-provided price
-  const total = orderData.items.reduce((sum, item) =>
-    sum + (item.price * item.quantity), 0
-  );
-
-  // ✅ CORRECT - Fetch prices from database
-  const products = await db.products.findMany({
-    where: { id: { in: orderData.items.map(i => i.productId) } }
-  });
-
-  const total = orderData.items.reduce((sum, item) => {
-    const product = products.find(p => p.id === item.productId);
-    return sum + (product.price * item.quantity);
-  }, 0);
-}
-```
-
-### 2. Image Upload Security
-
-- **File type validation:** Only allow JPG, PNG, WEBP
-- **File size limits:** Max 5 MB per file
-- **Malware scanning:** Scan all uploads
-- **Storage:** Store outside web root, serve via CDN
-- **Rate limiting:** Limit uploads per user per time period
-
-### 3. Inventory Concurrency
-
-```javascript
-// Use database transactions for atomic inventory updates
-async function reserveInventory(productId, quantity) {
-  return await db.$transaction(async (tx) => {
-    // Lock the row for update
-    const product = await tx.products.findUnique({
-      where: { id: productId },
-      lock: 'FOR UPDATE'
-    });
-
-    if (product.stockQuantity < quantity) {
-      throw new Error('Insufficient stock');
-    }
-
-    // Update inventory atomically
-    await tx.products.update({
-      where: { id: productId },
-      data: {
-        stockQuantity: product.stockQuantity - quantity
-      }
-    });
-  });
-}
-```
-
-### 4. Input Sanitization
-
-```javascript
-// Sanitize all text inputs
-import sanitizeHtml from 'sanitize-html';
-
-function sanitizeProductInput(data) {
-  return {
-    ...data,
-    name: sanitizeHtml(data.name, { allowedTags: [] }),
-    description: sanitizeHtml(data.description, {
-      allowedTags: ['b', 'i', 'em', 'strong', 'p', 'br']
-    })
-  };
-}
-```
-
-### 5. Audit Logging
-
-Log all critical product operations:
-
-```javascript
-await auditLog.create({
-  userId: req.user.id,
-  action: 'PRODUCT_UPDATE',
-  resourceType: 'product',
-  resourceId: productId,
-  changes: {
-    before: oldProduct,
-    after: newProduct
-  },
-  ipAddress: req.ip,
-  userAgent: req.headers['user-agent'],
-  timestamp: new Date()
-});
-```
-
----
-
-## Rate Limiting
-
-Implement rate limits to prevent abuse:
-
-| Endpoint | Limit | Window |
-|----------|-------|--------|
-| `POST /api/products` | 10 requests | 1 minute |
-| `PUT /api/products/:id` | 30 requests | 1 minute |
-| `POST /api/products/:id/images` | 5 requests | 1 minute |
-| `GET /api/products` | 100 requests | 1 minute |
-| `POST /api/products/bulk` | 5 requests | 5 minutes |
-
----
-
-## Performance Optimization
-
-### 1. Database Query Optimization
-
-```javascript
-// Use select to fetch only needed fields
-const products = await db.products.findMany({
-  select: {
-    id: true,
-    name: true,
-    price: true,
-    stockQuantity: true,
-    availability: true,
-    images: {
-      select: { thumbnail: true, alt: true },
-      take: 1
-    }
-  },
-  where: { section: 'cafe' },
-  take: 20
-});
-```
-
-### 2. Caching Strategy
-
-```javascript
-// Cache product list responses
-const cacheKey = `products:${section}:${page}:${filters}`;
-const cached = await redis.get(cacheKey);
-
-if (cached) {
-  return JSON.parse(cached);
-}
-
-const products = await fetchProducts();
-await redis.setex(cacheKey, 300, JSON.stringify(products)); // 5 min TTL
-return products;
-```
-
-### 3. Image Optimization
-
-- Use CDN for all image delivery
-- Implement lazy loading on frontend
-- Generate WebP versions for modern browsers
-- Use appropriate image sizes based on context
-
----
-
-## Testing Recommendations
-
-### Unit Tests
-
-- Validation logic for all product types
-- Availability calculation
-- SKU generation and uniqueness
-- Price validation
-
-### Integration Tests
-
-- Full CRUD operations for each section
-- Image upload and processing
-- Variant management
-- Bulk operations
-
-### Load Tests
-
-- List products with filters (100 concurrent requests)
-- Create products (10 concurrent requests)
-- Image uploads (5 concurrent uploads)
-
----
-
-## Changelog
-
-| Version | Date | Changes |
-|---------|------|---------|
-| 1.0.0 | 2025-11-20 | Initial API documentation |
-
----
-
-## Support
-
-For questions or issues related to the Product Management API:
-
-- **Documentation:** [Project Overview](/API%20Docs/00-Project-Overview-For-Backend.md)
-- **Related APIs:** [Order Management](/API%20Docs/01-Order-Management-API.md)
-- **Security:** [Security Guidelines](/API%20Docs/Security-Guidelines.md)
-
----
-
-**End of Product Management API Documentation**
+For questions, issues, or feature requests related to the Product Management API, please contact the backend development team or create an issue in the project repository.

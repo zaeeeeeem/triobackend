@@ -1,4 +1,5 @@
-import { S3Client, S3ClientConfig } from '@aws-sdk/client-s3';
+import { GetObjectCommand, S3Client, S3ClientConfig } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { env } from './env';
 import { logger } from '../utils/logger';
 
@@ -32,6 +33,18 @@ export const getPublicUrl = (key: string): string => {
   }
   // For AWS S3
   return `https://${env.AWS_S3_BUCKET}.s3.${env.AWS_S3_REGION}.amazonaws.com/${key}`;
+};
+
+export const getSignedUrlForKey = async (
+  key: string,
+  expiresIn: number = env.S3_SIGNED_URL_TTL
+): Promise<string> => {
+  const command = new GetObjectCommand({
+    Bucket: env.AWS_S3_BUCKET,
+    Key: key,
+  });
+
+  return getSignedUrl(s3Client, command, { expiresIn });
 };
 
 export default s3Client;

@@ -44,6 +44,7 @@ export const productValidation = {
     query('section').optional().isIn(Object.values(Section)),
     query('status').optional().isIn(Object.values(ProductStatus)),
     query('availability').optional().isIn(Object.values(ProductAvailability)),
+    query('mostDiscounted').optional().isBoolean(),
   ],
 };
 

@@ -9,8 +9,8 @@ import { UserRole } from '@prisma/client';
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage() });
 
-// All product routes require authentication
-router.use(authenticate);
+// NOTE: GET endpoints (list and getById) are PUBLIC for customer browsing
+// All other endpoints require authentication
 
 /**
  * @swagger
@@ -102,6 +102,11 @@ router.use(authenticate);
  *           enum: [asc, desc]
  *           default: desc
  *         description: Sort order
+ *       - in: query
+ *         name: mostDiscounted
+ *         schema:
+ *           type: boolean
+ *         description: When true, returns top 7 products with highest discount percentage (based on compareAtPrice vs price)
  *     responses:
  *       200:
  *         description: Products retrieved successfully
@@ -138,6 +143,7 @@ router.use(authenticate);
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
+// PUBLIC endpoint - no authentication required
 router.get('/', validate(productValidation.list), productController.listProducts);
 
 /**
@@ -364,8 +370,10 @@ router.get('/', validate(productValidation.list), productController.listProducts
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
+// PROTECTED endpoint - requires authentication
 router.post(
   '/',
+  authenticate,
   authorize(UserRole.ADMIN, UserRole.MANAGER),
   createLimiter,
   validate(productValidation.create),
@@ -448,7 +456,8 @@ router.post(
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.patch('/bulk', authorize(UserRole.ADMIN), bulkLimiter, productController.bulkUpdate);
+// PROTECTED endpoint - Admin only
+router.patch('/bulk', authenticate, authorize(UserRole.ADMIN), bulkLimiter, productController.bulkUpdate);
 
 /**
  * @swagger
@@ -515,7 +524,8 @@ router.patch('/bulk', authorize(UserRole.ADMIN), bulkLimiter, productController.
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.delete('/bulk', authorize(UserRole.ADMIN), bulkLimiter, productController.bulkDelete);
+// PROTECTED endpoint - Admin only
+router.delete('/bulk', authenticate, authorize(UserRole.ADMIN), bulkLimiter, productController.bulkDelete);
 
 /**
  * @swagger
@@ -560,6 +570,7 @@ router.delete('/bulk', authorize(UserRole.ADMIN), bulkLimiter, productController
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
+// PUBLIC endpoint - no authentication required
 router.get('/:id', validate(productValidation.getById), productController.getProduct);
 
 /**
@@ -736,8 +747,10 @@ router.get('/:id', validate(productValidation.getById), productController.getPro
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
+// PROTECTED endpoint - requires authentication
 router.put(
   '/:id',
+  authenticate,
   authorize(UserRole.ADMIN, UserRole.MANAGER),
   validate(productValidation.update),
   productController.updateProduct
@@ -799,8 +812,10 @@ router.put(
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
+// PROTECTED endpoint - Admin only
 router.delete(
   '/:id',
+  authenticate,
   authorize(UserRole.ADMIN),
   validate(productValidation.delete),
   productController.deleteProduct
@@ -889,8 +904,10 @@ router.delete(
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
+// PROTECTED endpoint - requires authentication
 router.post(
   '/:id/images',
+  authenticate,
   authorize(UserRole.ADMIN, UserRole.MANAGER),
   uploadLimiter,
   upload.array('images', 10),
@@ -969,8 +986,10 @@ router.post(
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
+// PROTECTED endpoint - requires authentication
 router.put(
   '/:id/images/reorder',
+  authenticate,
   authorize(UserRole.ADMIN, UserRole.MANAGER),
   productController.reorderImages
 );
@@ -1032,8 +1051,10 @@ router.put(
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
+// PROTECTED endpoint - requires authentication
 router.delete(
   '/:id/images/:imageId',
+  authenticate,
   authorize(UserRole.ADMIN, UserRole.MANAGER),
   productController.deleteImage
 );

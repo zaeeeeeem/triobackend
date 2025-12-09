@@ -35,6 +35,7 @@ export const env = {
   AWS_S3_ENDPOINT: process.env.AWS_S3_ENDPOINT,
   AWS_S3_FORCE_PATH_STYLE: process.env.AWS_S3_FORCE_PATH_STYLE === 'true',
   AWS_S3_PUBLIC_URL: process.env.AWS_S3_PUBLIC_URL,
+  S3_SIGNED_URL_TTL: parseInt(process.env.S3_SIGNED_URL_TTL || '600', 10),
 
   // CORS
   ALLOWED_ORIGINS: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000'],

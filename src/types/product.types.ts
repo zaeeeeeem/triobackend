@@ -150,6 +150,9 @@ export interface ProductQueryParams {
   format?: string;
   condition?: string;
   language?: string;
+
+  // Special filters
+  mostDiscounted?: boolean;
 }
 
 // =====================================================

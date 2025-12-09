@@ -8,6 +8,8 @@ import { ValidationError } from '../utils/errors';
 import { env } from '../config/env';
 import prisma from '../config/database';
 import { logger } from '../utils/logger';
+import { extractS3KeyFromUrl, getSignedUrlFromStoredUrl } from '../utils/s3Helpers';
+import { ProductImage } from '@prisma/client';
 
 export interface ImageUploadResult {
   original: string;
@@ -53,8 +55,7 @@ export class UploadService {
           position: existingImages + i,
         },
       });
-
-      uploadedImages.push(image);
+      uploadedImages.push(await this.withSignedUrls(image));
     }
 
     return uploadedImages;
@@ -72,9 +73,9 @@ export class UploadService {
     try {
       // Delete from S3
       const keys = [
-        this.extractKeyFromUrl(image.originalUrl),
-        this.extractKeyFromUrl(image.mediumUrl),
-        this.extractKeyFromUrl(image.thumbnailUrl),
+        extractS3KeyFromUrl(image.originalUrl),
+        extractS3KeyFromUrl(image.mediumUrl),
+        extractS3KeyFromUrl(image.thumbnailUrl),
       ];
 
       await Promise.all(
@@ -199,7 +200,6 @@ export class UploadService {
           Key: key,
           Body: buffer,
           ContentType: contentType,
-          ACL: 'public-read', // Make images publicly accessible
         },
       });
 
@@ -231,19 +231,19 @@ export class UploadService {
     }
   }
 
-  private extractKeyFromUrl(url: string): string {
-    // Extract key from public URL
-    // For MinIO: http://localhost:9000/trio-media/app/uploads/products/...
-    // For S3: https://bucket.s3.region.amazonaws.com/app/uploads/products/...
+  private async withSignedUrls(image: ProductImage) {
+    const [signedOriginalUrl, signedMediumUrl, signedThumbnailUrl] = await Promise.all([
+      getSignedUrlFromStoredUrl(image.originalUrl),
+      getSignedUrlFromStoredUrl(image.mediumUrl),
+      getSignedUrlFromStoredUrl(image.thumbnailUrl),
+    ]);
 
-    if (env.AWS_S3_PUBLIC_URL && url.startsWith(env.AWS_S3_PUBLIC_URL)) {
-      // MinIO or custom endpoint
-      return url.replace(`${env.AWS_S3_PUBLIC_URL}/`, '');
-    }
-
-    // AWS S3
-    const urlParts = url.split('.amazonaws.com/');
-    return urlParts.length > 1 ? urlParts[1] : url;
+    return {
+      ...image,
+      signedOriginalUrl,
+      signedMediumUrl,
+      signedThumbnailUrl,
+    };
   }
 
   private async reorderImages(productId: string): Promise<void> {

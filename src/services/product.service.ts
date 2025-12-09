@@ -1,4 +1,4 @@
-import { Prisma, Section, ProductStatus, ProductAvailability } from '@prisma/client';
+import { Prisma, Section, ProductStatus, ProductAvailability, ProductImage } from '@prisma/client';
 import prisma from '../config/database';
 import { NotFoundError, ConflictError } from '../utils/errors';
 import { cache } from '../config/redis';
@@ -12,6 +12,9 @@ import {
   CreateFlowersProductDto,
   CreateBooksProductDto,
 } from '../types/product.types';
+import { getSignedUrlFromStoredUrl } from '../utils/s3Helpers';
+
+type ProductWithImages = Record<string, unknown> & { images?: ProductImage[] };
 
 export class ProductService {
   async createProduct(data: CreateProductDto, userId: string) {
@@ -135,7 +138,7 @@ export class ProductService {
     // Invalidate cache
     await this.invalidateProductCache(product.section);
 
-    return product;
+    return this.addSignedUrlsToProduct(product);
   }
 
   async getProductById(id: string) {
@@ -157,7 +160,7 @@ export class ProductService {
       throw new NotFoundError('Product', id);
     }
 
-    return product;
+    return this.addSignedUrlsToProduct(product);
   }
 
   async listProducts(
@@ -302,6 +305,50 @@ export class ProductService {
       }
     }
 
+    // Handle mostDiscounted filter
+    if (params.mostDiscounted) {
+      // Fetch all products with compareAtPrice to calculate discount
+      const productsWithDiscount = await prisma.product.findMany({
+        where: {
+          ...where,
+          compareAtPrice: { not: null, gt: 0 },
+          price: { gt: 0 },
+        },
+        include: {
+          cafeProduct: true,
+          flowersProduct: true,
+          booksProduct: true,
+          images: {
+            take: 1,
+            orderBy: { position: 'asc' },
+          },
+        },
+      });
+
+      // Calculate discount percentage and sort
+      const productsWithDiscountCalc = productsWithDiscount.map((product) => {
+        const compareAt = Number(product.compareAtPrice);
+        const price = Number(product.price);
+        const discountPercentage = compareAt > 0 ? ((compareAt - price) / compareAt) * 100 : 0;
+        return {
+          ...product,
+          discountPercentage,
+        };
+      });
+
+      // Sort by discount percentage descending and take top 7
+      const topDiscounted = productsWithDiscountCalc
+        .sort((a, b) => b.discountPercentage - a.discountPercentage)
+        .slice(0, 7);
+
+      return {
+        products: await this.addSignedUrlsToProducts(topDiscounted as ProductWithImages[]),
+        totalItems: topDiscounted.length,
+        page: 1,
+        limit: 7,
+      };
+    }
+
     // Sorting
     const orderBy: Prisma.ProductOrderByWithRelationInput = {};
     const sortOrder = params.sortOrder || 'desc';
@@ -314,9 +361,15 @@ export class ProductService {
 
     // Try to get from cache
     const cacheKey = `products:list:${JSON.stringify({ where, orderBy, skip, limit })}`;
-    const cached = await cache.get(cacheKey);
+    const cached = await cache.get<ProductListResult>(cacheKey);
     if (cached) {
-      return cached as ProductListResult;
+      const productsWithSignedUrls = await this.addSignedUrlsToProducts(
+        cached.products as ProductWithImages[]
+      );
+      return {
+        ...cached,
+        products: productsWithSignedUrls,
+      };
     }
 
     // Execute query
@@ -347,9 +400,12 @@ export class ProductService {
     };
 
     // Cache for 5 minutes
-    await cache.set(cacheKey, result, 300);
+    await cache.set(cacheKey, result, 1);
 
-    return result;
+    return {
+      ...result,
+      products: await this.addSignedUrlsToProducts(products as ProductWithImages[]),
+    };
   }
 
   async updateProduct(id: string, data: UpdateProductDto, userId: string) {
@@ -475,7 +531,7 @@ export class ProductService {
     // Invalidate cache
     await this.invalidateProductCache(product.section);
 
-    return product;
+    return this.addSignedUrlsToProduct(product);
   }
 
   async deleteProduct(id: string, force: boolean = false) {
@@ -600,6 +656,47 @@ export class ProductService {
     if (section) {
       await cache.invalidatePattern(`products:${section}:*`);
     }
+  }
+
+  private async addSignedUrlsToProducts<T extends ProductWithImages>(products: T[]): Promise<T[]> {
+    return Promise.all(products.map((product) => this.addSignedUrlsToProduct(product)));
+  }
+
+  private async addSignedUrlsToProduct<T extends ProductWithImages>(product: T): Promise<T> {
+    if (!product.images || product.images.length === 0) {
+      return product;
+    }
+
+    const imagesWithSignedUrls = await this.addSignedUrlsToImages(product.images);
+    return {
+      ...product,
+      images: imagesWithSignedUrls,
+    };
+  }
+
+  private async addSignedUrlsToImages(images: ProductImage[]): Promise<
+    (ProductImage & {
+      signedOriginalUrl: string;
+      signedMediumUrl: string;
+      signedThumbnailUrl: string;
+    })[]
+  > {
+    return Promise.all(
+      images.map(async (image) => {
+        const [signedOriginalUrl, signedMediumUrl, signedThumbnailUrl] = await Promise.all([
+          getSignedUrlFromStoredUrl(image.originalUrl),
+          getSignedUrlFromStoredUrl(image.mediumUrl),
+          getSignedUrlFromStoredUrl(image.thumbnailUrl),
+        ]);
+
+        return {
+          ...image,
+          signedOriginalUrl,
+          signedMediumUrl,
+          signedThumbnailUrl,
+        };
+      })
+    );
   }
 }
 
