@@ -32,10 +32,6 @@ export const env = {
   AWS_S3_ACCESS_KEY_ID: process.env.AWS_S3_ACCESS_KEY_ID!,
   AWS_S3_SECRET_ACCESS_KEY: process.env.AWS_S3_SECRET_ACCESS_KEY!,
   AWS_S3_BASE_PREFIX: process.env.AWS_S3_BASE_PREFIX || 'app/uploads',
-  AWS_S3_ENDPOINT: process.env.AWS_S3_ENDPOINT,
-  AWS_S3_FORCE_PATH_STYLE: process.env.AWS_S3_FORCE_PATH_STYLE === 'true',
-  AWS_S3_PUBLIC_URL: process.env.AWS_S3_PUBLIC_URL,
-  S3_SIGNED_URL_TTL: parseInt(process.env.S3_SIGNED_URL_TTL || '600', 10),
 
   // CORS
   ALLOWED_ORIGINS: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000'],

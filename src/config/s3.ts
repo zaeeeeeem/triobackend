@@ -11,12 +11,6 @@ const s3ClientConfig: S3ClientConfig = {
   },
 };
 
-// MinIO-specific configuration
-if (env.AWS_S3_ENDPOINT) {
-  s3ClientConfig.endpoint = env.AWS_S3_ENDPOINT;
-  s3ClientConfig.forcePathStyle = env.AWS_S3_FORCE_PATH_STYLE;
-}
-
 export const s3Client = new S3Client(s3ClientConfig);
 
 logger.info('S3 Client initialized', {

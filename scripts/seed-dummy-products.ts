@@ -21,7 +21,7 @@ const SECTION_FOLDER_MAP: Record<Section, string> = {
   [Section.FLOWERS]: 'flowers',
   [Section.BOOKS]: 'books',
 };
-const LOCAL_IMAGE_PATH = path.resolve(__dirname, '../assets/dummy-product.jpg');
+const LOCAL_IMAGE_PATH = path.resolve(__dirname, '../Assets/dummy-product.jpg');
 
 interface VariantBuffers {
   original: Buffer;
