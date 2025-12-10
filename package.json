@@ -12,6 +12,7 @@
     "prisma:studio": "prisma studio",
     "prisma:seed": "tsx prisma/seed.ts",
     "seed:dummies": "tsx scripts/seed-dummy-products.ts",
+    "seed:cafe-menu": "tsx scripts/seed-cafe-menu.ts",
     "lint": "eslint src/**/*.ts",
     "lint:fix": "eslint src/**/*.ts --fix",
     "format": "prettier --write \"src/**/*.ts\"",
