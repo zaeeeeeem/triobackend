@@ -7,6 +7,7 @@ import { errorHandler } from './middleware/errorHandler';
 import { generalLimiter } from './middleware/rateLimiter';
 import { swaggerSpec } from './config/swagger';
 import routes from './routes';
+import { warn } from 'console';
 
 const app: Application = express();
 
@@ -47,7 +48,12 @@ app.use(
 // CORS
 // ========================================
 app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', 'https://www.triobymaham.com/');
+  const origin = req.headers.origin;
+  warn('Request Origin:', origin);
+  if (env.ALLOWED_ORIGINS.includes(origin!) || '') {
+    warn(env.ALLOWED_ORIGINS);
+    res.header('Access-Control-Allow-Origin', origin);
+  }
   res.header(
     'Access-Control-Allow-Headers',
     'Origin, X-Requested-With, Content-Type, Accept, Authorization'

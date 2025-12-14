@@ -34,7 +34,7 @@ export const env = {
   AWS_S3_BASE_PREFIX: process.env.AWS_S3_BASE_PREFIX || 'app/uploads',
 
   // CORS
-  ALLOWED_ORIGINS: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000'],
+  ALLOWED_ORIGINS: process.env.ALLOWED_ORIGINS?.split(',') || ['https://www.triobymaham.com/'],
 
   // Rate Limiting
   RATE_LIMIT_WINDOW_MS: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '60000', 10),
