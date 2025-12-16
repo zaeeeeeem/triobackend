@@ -143,6 +143,7 @@ export interface ProductQueryParams {
   arrangementType?: string;
   occasion?: string;
   colors?: string;
+  seasonality?: string;
 
   // Books-specific filters
   author?: string;

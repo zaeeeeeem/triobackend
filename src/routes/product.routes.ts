@@ -69,6 +69,11 @@ const upload = multer({ storage: multer.memoryStorage() });
  *           type: string
  *         description: Filter by arrangement type (when section=FLOWERS)
  *       - in: query
+ *         name: seasonality
+ *         schema:
+ *           type: string
+ *         description: Filter by seasonality (when section=FLOWERS)
+ *       - in: query
  *         name: isActive
  *         schema:
  *           type: boolean

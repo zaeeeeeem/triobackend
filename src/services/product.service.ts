@@ -283,6 +283,9 @@ export class ProductService {
       if (params.occasion) {
         flowersWhere.occasion = params.occasion;
       }
+      if (params.seasonality) {
+        flowersWhere.seasonality = params.seasonality;
+      }
       if (Object.keys(flowersWhere).length > 0) {
         (where as Record<string, unknown>).flowersProduct = flowersWhere;
       }
