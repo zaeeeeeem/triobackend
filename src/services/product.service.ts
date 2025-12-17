@@ -168,8 +168,8 @@ export class ProductService {
     userRole?: string,
     userSection?: Section
   ): Promise<ProductListResult> {
-    const page = params.page || 1;
-    const limit = Math.min(params.limit || env.DEFAULT_PAGE_SIZE, env.MAX_PAGE_SIZE);
+    const page = Number(params.page) || 1;
+    const limit = Math.min(Number(params.limit) || env.DEFAULT_PAGE_SIZE, env.MAX_PAGE_SIZE);
     const skip = (page - 1) * limit;
 
     // Build where clause
