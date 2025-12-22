@@ -69,7 +69,7 @@ exports.createOrderValidator = [
         .matches(/^[\d\s\-\+\(\)]+$/)
         .withMessage('Invalid phone number format'),
     (0, express_validator_1.body)('shippingAddress.email')
-        .optional()
+        .optional({ checkFalsy: true })
         .isEmail()
         .normalizeEmail()
         .withMessage('Invalid email address'),

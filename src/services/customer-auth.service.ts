@@ -133,9 +133,15 @@ export class CustomerAuthService {
       emailVerificationToken
     );
 
+    const guestOrdersLinked = await guestOrderService.linkGuestOrdersToCustomer(
+      customer.id,
+      customer.email
+    );
+
     return {
       customer: this.sanitizeCustomer(customer),
       tokens,
+      guestOrdersLinked: guestOrdersLinked > 0 ? guestOrdersLinked : undefined,
     };
   }
 

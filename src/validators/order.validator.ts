@@ -82,7 +82,7 @@ export const createOrderValidator = [
     .withMessage('Invalid phone number format'),
 
   body('shippingAddress.email')
-    .optional()
+    .optional({ checkFalsy: true })
     .isEmail()
     .normalizeEmail()
     .withMessage('Invalid email address'),

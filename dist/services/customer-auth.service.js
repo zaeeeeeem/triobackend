@@ -99,9 +99,11 @@ class CustomerAuthService {
         });
         const tokens = await this.generateTokens(customer);
         await email_service_1.emailService.sendVerificationEmail(customer.email, customer.name, emailVerificationToken);
+        const guestOrdersLinked = await guest_order_service_1.guestOrderService.linkGuestOrdersToCustomer(customer.id, customer.email);
         return {
             customer: this.sanitizeCustomer(customer),
             tokens,
+            guestOrdersLinked: guestOrdersLinked > 0 ? guestOrdersLinked : undefined,
         };
     }
     /**
