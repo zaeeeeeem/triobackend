@@ -501,11 +501,7 @@ export class OrderService {
             tags: data.tags || [],
             orderDate: new Date(),
             createdBy: createdBy || null,
-            customer: customerId
-              ? {
-                  connect: { id: customerId },
-                }
-              : undefined,
+            customerId: customerId || null,
           },
           include: {
             items: true,

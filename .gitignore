@@ -10,7 +10,6 @@ pnpm-lock.yaml
 .env.production
 
 # Build output
-dist/
 build/
 Docs/
 
