@@ -382,7 +382,7 @@ model Order {
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
   deletedAt DateTime? @map("deleted_at")
-  createdBy String    @map("created_by")
+  createdBy String?   @map("created_by")
 
   // Relations
   customer        Customer?        @relation(fields: [customerId], references: [id])
