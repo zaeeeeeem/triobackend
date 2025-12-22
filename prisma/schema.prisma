@@ -97,11 +97,11 @@ model Product {
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
   deletedAt DateTime? @map("deleted_at")
-  createdBy String    @map("created_by")
+  createdBy String?   @map("created_by")
   updatedBy String?   @map("updated_by")
 
   // Relations
-  creator      User            @relation("ProductCreator", fields: [createdBy], references: [id])
+  creator      User?           @relation("ProductCreator", fields: [createdBy], references: [id])
   updater      User?           @relation("ProductUpdater", fields: [updatedBy], references: [id])
   images       ProductImage[]
   variants     ProductVariant[]
@@ -386,7 +386,7 @@ model Order {
 
   // Relations
   customer        Customer?        @relation(fields: [customerId], references: [id])
-  creator         User             @relation("OrderCreator", fields: [createdBy], references: [id])
+  creator         User?            @relation("OrderCreator", fields: [createdBy], references: [id])
   items           OrderItem[]
   shippingAddress ShippingAddress?
 

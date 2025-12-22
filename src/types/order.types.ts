@@ -333,7 +333,7 @@ export interface PreparedOrderData {
   tags: string[];
   paymentMethod?: string;
   discountCode?: string;
-  createdBy: string;
+  createdBy?: string;
 }
 
 // ============================================

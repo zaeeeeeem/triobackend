@@ -29,11 +29,11 @@ export class OrderController {
       }
 
       const data: CreateOrderDto = req.body;
-      const createdBy = (req as any).user?.id || 'system'; // From auth middleware
+      const createdBy = (req as any).user?.id; // Optional (guest/system)
 
       const order = await orderService.createOrder(data, createdBy);
 
-      logger.info(`Order created: ${order.orderNumber} by ${createdBy}`);
+      logger.info(`Order created: ${order.orderNumber} by ${createdBy ?? 'system'}`);
 
       res.status(201).json({
         success: true,
@@ -249,11 +249,13 @@ export class OrderController {
       }
 
       const { orderId } = req.params;
-      const createdBy = (req as any).user?.id || 'system';
+      const createdBy = (req as any).user?.id;
 
       const newOrder = await orderService.duplicateOrder(orderId, createdBy);
 
-      logger.info(`Order duplicated: ${orderId} → ${newOrder.orderNumber}`);
+      logger.info(
+        `Order duplicated: ${orderId} → ${newOrder.orderNumber} by ${createdBy ?? 'system'}`
+      );
 
       res.status(201).json({
         success: true,

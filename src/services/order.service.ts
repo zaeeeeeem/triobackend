@@ -408,7 +408,7 @@ export class OrderService {
    */
   async createOrder(
     data: CreateOrderDto,
-    createdBy: string
+    createdBy?: string
   ): Promise<OrderResponse> {
     try {
       // 1. Generate order number
@@ -489,7 +489,7 @@ export class OrderService {
             notes: data.notes || null,
             tags: data.tags || [],
             orderDate: new Date(),
-            createdBy,
+            createdBy: createdBy || null,
           },
           include: {
             items: true,
@@ -852,7 +852,7 @@ export class OrderService {
    * Duplicate order
    * Creates a new order with same items and customer
    */
-  async duplicateOrder(orderId: string, createdBy: string): Promise<OrderResponse> {
+  async duplicateOrder(orderId: string, createdBy?: string): Promise<OrderResponse> {
     const originalOrder = await prisma.order.findUnique({
       where: { id: orderId },
       include: {
