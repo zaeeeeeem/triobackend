@@ -17,6 +17,11 @@ import {
 } from '../types/order.types';
 import { PaymentStatus, FulfillmentStatus, Section } from '@prisma/client';
 
+interface AuthenticatedCustomerContext {
+  id: string;
+  email: string;
+}
+
 /**
  * Order Service
  *
@@ -408,7 +413,8 @@ export class OrderService {
    */
   async createOrder(
     data: CreateOrderDto,
-    createdBy?: string
+    createdBy?: string,
+    authCustomer?: AuthenticatedCustomerContext
   ): Promise<OrderResponse> {
     try {
       // 1. Generate order number
@@ -451,16 +457,22 @@ export class OrderService {
         shippingCost
       );
 
-      // 6. Find or prepare customer data
+      // 6. Determine customer linkage
+      const checkoutEmail = data.customer.email.trim().toLowerCase();
       let customerId: string | undefined;
-      const isGuest = !data.customer.email.includes('@') ? false : true; // Simple check
 
-      if (!isGuest) {
-        // Try to find existing customer by email
+      if (authCustomer) {
+        if (authCustomer.email.toLowerCase() !== checkoutEmail) {
+          throw new ValidationError(
+            'Authenticated customer email does not match the checkout email.'
+          );
+        }
+        customerId = authCustomer.id;
+      } else {
         const existingCustomer = await prisma.customer.findUnique({
-          where: { email: data.customer.email },
+          where: { email: checkoutEmail },
+          select: { id: true },
         });
-
         customerId = existingCustomer?.id;
       }
 
@@ -470,7 +482,7 @@ export class OrderService {
         const createdOrder = await tx.order.create({
           data: {
             orderNumber,
-            customerEmail: data.customer.email,
+            customerEmail: checkoutEmail,
             customerName: data.customer.name,
             customerPhone: data.customer.phone || null,
             guestOrder: !customerId,

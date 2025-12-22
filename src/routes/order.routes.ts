@@ -24,13 +24,17 @@ const router = Router();
 
 /**
  * @swagger
- * /api/v1/orders:
+ * /orders:
  *   post:
  *     summary: Create a new order (checkout) - Supports mixed-category orders
- *     description: Create an order with items from CAFE, FLOWERS, and/or BOOKS sections. The section field is optional and will auto-detect from the first item if not provided.
+ *     description: >
+ *       Works for both guests and authenticated customers. If `Authorization: Bearer <customer-token>` is supplied it is validated,
+ *       but the payload must still include the `customer` object. The backend links the order to an existing customer by `customer.email`
+ *       when possible; otherwise it stores it as a guest order. Items can come from CAFE, FLOWERS, and/or BOOKS sections (the section field is optional and auto-detects from the first item if omitted).
  *     tags: [Orders]
  *     security:
  *       - bearerAuth: []
+ *       - {}
  *     requestBody:
  *       required: true
  *       content:
@@ -179,7 +183,7 @@ router.post('/', optionalCustomerAuth, createOrderValidator, orderController.cre
 
 /**
  * @swagger
- * /api/v1/orders:
+ * /orders:
  *   get:
  *     summary: List all orders with filters
  *     tags: [Orders]
@@ -254,7 +258,7 @@ router.get('/', authenticate, orderQueryValidator, orderController.list);
 
 /**
  * @swagger
- * /api/v1/orders/stats:
+ * /orders/stats:
  *   get:
  *     summary: Get order statistics
  *     tags: [Orders]
@@ -286,7 +290,7 @@ router.get('/stats', authenticate, orderStatsQueryValidator, orderController.get
 
 /**
  * @swagger
- * /api/v1/orders/export:
+ * /orders/export:
  *   get:
  *     summary: Export orders to CSV
  *     tags: [Orders]
@@ -336,7 +340,7 @@ router.get('/export', authenticate, orderQueryValidator, orderController.exportC
 
 /**
  * @swagger
- * /api/v1/orders/{orderId}:
+ * /orders/{orderId}:
  *   get:
  *     summary: Get order by ID
  *     tags: [Orders]
@@ -359,7 +363,7 @@ router.get('/:orderId', authenticate, orderIdParamValidator, orderController.get
 
 /**
  * @swagger
- * /api/v1/orders/{orderId}:
+ * /orders/{orderId}:
  *   patch:
  *     summary: Update order
  *     tags: [Orders]
@@ -408,7 +412,7 @@ router.patch(
 
 /**
  * @swagger
- * /api/v1/orders/{orderId}/payment-status:
+ * /orders/{orderId}/payment-status:
  *   patch:
  *     summary: Update payment status
  *     tags: [Orders]
@@ -449,7 +453,7 @@ router.patch(
 
 /**
  * @swagger
- * /api/v1/orders/{orderId}/fulfillment-status:
+ * /orders/{orderId}/fulfillment-status:
  *   patch:
  *     summary: Update fulfillment status
  *     tags: [Orders]
@@ -490,7 +494,7 @@ router.patch(
 
 /**
  * @swagger
- * /api/v1/orders/{orderId}/duplicate:
+ * /orders/{orderId}/duplicate:
  *   post:
  *     summary: Duplicate an existing order
  *     tags: [Orders]
@@ -518,7 +522,7 @@ router.post(
 
 /**
  * @swagger
- * /api/v1/orders/{orderId}:
+ * /orders/{orderId}:
  *   delete:
  *     summary: Delete order (soft delete by default)
  *     tags: [Orders]

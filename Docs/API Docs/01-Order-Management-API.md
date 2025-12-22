@@ -297,6 +297,11 @@ type FulfillmentStatus = "UNFULFILLED" | "FULFILLED" | "PARTIAL" | "SCHEDULED";
 
 **Endpoint:** `POST /api/v1/orders`
 
+**Authentication:** Optional. This route is wrapped with `optionalCustomerAuth`, so it accepts calls with or without the `Authorization: Bearer <customer-access-token>` header. Regardless of authentication, the request body MUST include the `customer` object. When the backend receives the payload it:
+1. Validates the token (when provided) and attaches customer info to the request (used for logging/analytics only).
+2. Always looks up an existing customer by the `customer.email` provided in the body.
+3. If a match is found, the order is linked to that customer (`customerId` stored and `guestOrder=false`); otherwise, the order is stored as a guest order with `guestToken` populated.
+
 **Description:** Create a new order. Frontend clients **must not** send any price-related fields (`price`, `subtotal`, `tax`, `total`, `discount`, `shippingCost`). The validator rejects them and the backend recalculates everything from authoritative product data.
 
 **🔒 CRITICAL SECURITY NOTE:**
@@ -385,6 +390,11 @@ Never trust client-provided prices, totals, or calculations. The backend MUST:
 > 💡 **Note:** In Example 2, the `section` field is omitted. The system will automatically use the section from the first item (CAFE).
 
 > ⚠️ Discount codes are accepted for future compatibility, but the discount service is not wired up yet. Orders will currently be created without applying the discount amount even if a code is supplied.
+
+**Logged-in Checkout Flow**
+1. Frontend obtains a customer access token via `/api/v1/customer-auth/login` (or refresh) and includes it as `Authorization: Bearer <token>`.
+2. UI pre-fills the `customer` object with the authenticated user’s profile, but the body is structurally identical to the guest flow. **The email in the payload must match the authenticated user’s email**; otherwise the API rejects the request.
+3. Backend validates products/pricing, then attempts to connect the order to an existing customer by `customer.email`. When the token/email pair matches an account, the order is persisted with `customerId`, `guestOrder=false`, and the customer’s order stats are updated. Otherwise the order is stored as a guest order with `guestOrder=true` and a temporary `guestToken`.
 
 **Validation Rules:**
 

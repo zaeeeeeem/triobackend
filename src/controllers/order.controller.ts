@@ -4,6 +4,7 @@ import { validationResult } from 'express-validator';
 import { orderService } from '../services/order.service';
 import { ValidationError } from '../utils/errors';
 import { logger } from '../utils/logger';
+import { CustomerRequest } from '../middleware/customer-auth';
 import {
   CreateOrderDto,
   UpdateOrderDto,
@@ -30,8 +31,14 @@ export class OrderController {
 
       const data: CreateOrderDto = req.body;
       const createdBy = (req as any).user?.id; // Optional (guest/system)
+      const customerContext = (req as CustomerRequest).customer
+        ? {
+            id: (req as CustomerRequest).customer!.id,
+            email: (req as CustomerRequest).customer!.email,
+          }
+        : undefined;
 
-      const order = await orderService.createOrder(data, createdBy);
+      const order = await orderService.createOrder(data, createdBy, customerContext);
 
       logger.info(`Order created: ${order.orderNumber} by ${createdBy ?? 'system'}`);
 
