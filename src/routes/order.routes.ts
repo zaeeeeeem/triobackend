@@ -26,7 +26,8 @@ const router = Router();
  * @swagger
  * /api/v1/orders:
  *   post:
- *     summary: Create a new order (checkout)
+ *     summary: Create a new order (checkout) - Supports mixed-category orders
+ *     description: Create an order with items from CAFE, FLOWERS, and/or BOOKS sections. The section field is optional and will auto-detect from the first item if not provided.
  *     tags: [Orders]
  *     security:
  *       - bearerAuth: []
@@ -38,7 +39,6 @@ const router = Router();
  *             type: object
  *             required:
  *               - customer
- *               - section
  *               - items
  *             properties:
  *               customer:
@@ -60,6 +60,7 @@ const router = Router();
  *               section:
  *                 type: string
  *                 enum: [CAFE, FLOWERS, BOOKS]
+ *                 description: "Optional - If not provided, uses first item's section. Supports mixed-category orders (CAFE + FLOWERS + BOOKS in one order)."
  *                 example: "CAFE"
  *               items:
  *                 type: array
@@ -129,6 +130,43 @@ const router = Router();
  *               paymentMethod:
  *                 type: string
  *                 example: "cash"
+ *           examples:
+ *             singleCategory:
+ *               summary: Single-category order (CAFE only)
+ *               value:
+ *                 customer:
+ *                   name: "John Doe"
+ *                   email: "john@example.com"
+ *                   phone: "+92 300 1234567"
+ *                 section: "CAFE"
+ *                 items:
+ *                   - productId: "550e8400-e29b-41d4-a716-446655440000"
+ *                     quantity: 2
+ *                 paymentMethod: "cash"
+ *             mixedCategory:
+ *               summary: Mixed-category order (CAFE + FLOWERS + BOOKS) ✨ NEW
+ *               value:
+ *                 customer:
+ *                   name: "Sarah Ahmed"
+ *                   email: "sarah@example.com"
+ *                   phone: "+92 321 5551234"
+ *                 items:
+ *                   - productId: "cafe-product-uuid-123"
+ *                     quantity: 2
+ *                   - productId: "flowers-product-uuid-456"
+ *                     quantity: 1
+ *                   - productId: "books-product-uuid-789"
+ *                     quantity: 1
+ *                 shippingAddress:
+ *                   fullName: "Sarah Ahmed"
+ *                   phone: "+92 321 5551234"
+ *                   address: "10 Garden Road"
+ *                   city: "Islamabad"
+ *                   state: "ICT"
+ *                   postalCode: "44000"
+ *                   country: "Pakistan"
+ *                 notes: "Mixed order - Coffee, Flowers, and Book"
+ *                 paymentMethod: "card"
  *     responses:
  *       201:
  *         description: Order created successfully
