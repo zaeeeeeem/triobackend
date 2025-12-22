@@ -26,8 +26,9 @@ export const createOrderValidator = [
     .matches(/^[\d\s\-\+\(\)]+$/)
     .withMessage('Invalid phone number format'),
 
-  // Section
+  // Section (optional - will use first item's section if not provided)
   body('section')
+    .optional()
     .isIn(['CAFE', 'FLOWERS', 'BOOKS'])
     .withMessage('Section must be one of: CAFE, FLOWERS, BOOKS'),
 

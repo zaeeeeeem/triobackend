@@ -33,6 +33,8 @@ The Order Management module handles all operations related to customer orders ac
 - Shipping address management
 - Order notes and tags
 
+**Base Path:** All endpoints below are served under `/api/v1` in local development (see `env.API_VERSION`). Example: `GET /api/v1/orders`.
+
 ---
 
 ## Data Models
@@ -42,30 +44,35 @@ The Order Management module handles all operations related to customer orders ac
 **TypeScript Interface:**
 ```typescript
 interface Order {
-  id: string;                    // Unique order identifier
-  orderNumber: string;            // Human-readable order number (e.g., "#1034")
+  id: string;                     // Unique order identifier
+  orderNumber: string;            // Auto-generated, e.g. "#1034"
   customer: {
-    name: string;                 // Customer full name
-    email: string;                // Customer email address
-    phone?: string;               // Optional phone number
+    id?: string;                  // Present when tied to a registered customer
+    name: string;
+    email: string;
+    phone?: string;
   };
-  date: Date;                     // Order creation date/time
-  section: "cafe" | "flowers" | "books";  // Business section
-  paymentStatus: "paid" | "pending" | "refunded" | "failed";
-  fulfillmentStatus: "fulfilled" | "unfulfilled" | "partial" | "scheduled";
-  items: OrderItem[];             // Array of order items
-  itemsCount: number;             // Total number of items
-  subtotal: number;               // Subtotal amount (before tax/shipping)
-  tax: number;                    // Tax amount
-  shippingCost: number;           // Shipping cost
-  total: string;                  // Total amount (formatted, e.g., "Rs 1,250")
-  totalNumeric: number;           // Total amount (numeric for calculations)
+  date: string;                   // ISO timestamp from orderDate
+  section: "CAFE" | "FLOWERS" | "BOOKS";
+  paymentStatus: "PENDING" | "PAID" | "FAILED" | "REFUNDED";
+  fulfillmentStatus: "UNFULFILLED" | "FULFILLED" | "PARTIAL" | "SCHEDULED";
+  items: OrderItem[];
+  itemsCount: number;
+  subtotal: number;
+  tax: number;
+  discount: number;
+  shippingCost: number;
+  total: number;                  // Numeric total
+  totalFormatted: string;         // e.g. "PKR 1,250"
+  currency: string;               // e.g. "PKR"
   shippingAddress?: ShippingAddress;
-  notes?: string;                 // Order notes
-  tags?: string[];                // Order tags
-  createdAt: Date;                // Record creation timestamp
-  updatedAt?: Date;               // Last update timestamp
-  createdBy?: string;             // User who created the order
+  notes?: string;
+  tags: string[];
+  paymentMethod?: string;
+  createdAt: string;
+  updatedAt: string;
+  createdBy?: string;
+  guestOrder: boolean;
 }
 ```
 
@@ -73,16 +80,14 @@ interface Order {
 
 ```typescript
 interface OrderItem {
-  id: string;                     // Unique item identifier
-  productId: string;              // Reference to product
-  productName: string;            // Product name
-  sku?: string;                   // Product SKU
-  variant?: string;               // Product variant (e.g., size, color)
-  quantity: number;               // Item quantity
-  price: number;                  // Unit price
-  total: number;                  // Line total (quantity × price)
-  image?: string;                 // Product image URL
-  section: "cafe" | "flowers" | "books";
+  id: string;
+  productId: string;
+  productName: string;
+  sku: string;
+  variantId?: string;
+  quantity: number;
+  price: number;                  // Unit price captured at order time
+  total: number;                  // price × quantity
 }
 ```
 
@@ -90,36 +95,27 @@ interface OrderItem {
 
 ```typescript
 interface ShippingAddress {
-  firstName: string;
-  lastName: string;
-  address: string;                // Street address
+  fullName: string;
+  phone: string;
+  email?: string;
+  address: string;
   city: string;
-  state: string;                  // State/Province
-  postalCode: string;             // ZIP/Postal code
-  country?: string;               // Country (default: Pakistan)
+  state: string;
+  postalCode: string;
+  country?: string;
 }
 ```
 
 ### 4. Payment Status Enum
 
 ```typescript
-enum PaymentStatus {
-  PAID = "paid",           // Payment completed
-  PENDING = "pending",     // Payment awaiting
-  REFUNDED = "refunded",   // Payment refunded
-  FAILED = "failed"        // Payment failed
-}
+type PaymentStatus = "PENDING" | "PAID" | "FAILED" | "REFUNDED";
 ```
 
 ### 5. Fulfillment Status Enum
 
 ```typescript
-enum FulfillmentStatus {
-  FULFILLED = "fulfilled",       // All items shipped/delivered
-  UNFULFILLED = "unfulfilled",   // No items shipped
-  PARTIAL = "partial",           // Some items shipped
-  SCHEDULED = "scheduled"        // Scheduled for future fulfillment
-}
+type FulfillmentStatus = "UNFULFILLED" | "FULFILLED" | "PARTIAL" | "SCHEDULED";
 ```
 
 ---
@@ -128,7 +124,7 @@ enum FulfillmentStatus {
 
 ### 1. Get All Orders
 
-**Endpoint:** `GET /api/orders`
+**Endpoint:** `GET /api/v1/orders`
 
 **Description:** Retrieve a list of all orders with optional filtering, pagination, and sorting.
 
@@ -139,10 +135,11 @@ enum FulfillmentStatus {
 | `page` | number | No | Page number (default: 1) | `1` |
 | `limit` | number | No | Items per page (default: 20, max: 100) | `20` |
 | `search` | string | No | Search by order number, customer name, or email | `"Sarah Khan"` |
-| `section` | string | No | Filter by section: `cafe`, `flowers`, `books` | `"cafe"` |
-| `paymentStatus` | string | No | Filter by payment status | `"paid"` |
-| `fulfillmentStatus` | string | No | Filter by fulfillment status | `"unfulfilled"` |
-| `sortBy` | string | No | Sort field (default: `date`) | `"total"` |
+| `section` | string | No | Filter by section (`CAFE`, `FLOWERS`, `BOOKS`) | `"CAFE"` |
+| `paymentStatus` | string | No | Filter by payment status (`PENDING`, `PAID`, `FAILED`, `REFUNDED`) | `"PAID"` |
+| `fulfillmentStatus` | string | No | Filter by fulfillment status (`UNFULFILLED`, `PARTIAL`, `FULFILLED`, `SCHEDULED`) | `"UNFULFILLED"` |
+| `customerId` | string (UUID) | No | Filter by specific customer | `"64c6b5c4-..."` |
+| `sortBy` | string | No | Sort field (`orderDate`, `total`, `orderNumber`, `createdAt`, default `orderDate`) | `"total"` |
 | `sortOrder` | string | No | Sort order: `asc`, `desc` (default: `desc`) | `"desc"` |
 | `dateFrom` | string | No | Filter orders from date (ISO 8601) | `"2025-01-01"` |
 | `dateTo` | string | No | Filter orders to date (ISO 8601) | `"2025-12-31"` |
@@ -163,12 +160,28 @@ enum FulfillmentStatus {
           "phone": "+92 300 1234567"
         },
         "date": "2025-11-19T14:30:00.000Z",
-        "section": "cafe",
-        "paymentStatus": "paid",
-        "fulfillmentStatus": "fulfilled",
-        "itemsCount": 3,
-        "total": "Rs 1,250",
-        "totalNumeric": 1250,
+        "section": "CAFE",
+        "paymentStatus": "PAID",
+        "fulfillmentStatus": "FULFILLED",
+        "items": [
+          {
+            "id": "item-1",
+            "productId": "prod-101",
+            "productName": "Cappuccino",
+            "sku": "CAF-CAP-001",
+            "quantity": 2,
+            "price": 350,
+            "total": 700
+          }
+        ],
+        "itemsCount": 1,
+        "subtotal": 1250,
+        "tax": 0,
+        "discount": 0,
+        "shippingCost": 0,
+        "total": 1250,
+        "totalFormatted": "PKR 1,250",
+        "currency": "PKR",
         "tags": ["urgent", "vip"]
       }
     ],
@@ -179,13 +192,6 @@ enum FulfillmentStatus {
       "totalOrders": 100,
       "hasNext": true,
       "hasPrevious": false
-    },
-    "stats": {
-      "totalOrders": 100,
-      "paidOrders": 85,
-      "pendingOrders": 10,
-      "fulfilledOrders": 75,
-      "unfulfilledOrders": 20
     }
   }
 }
@@ -197,11 +203,13 @@ enum FulfillmentStatus {
 - `401 Unauthorized` - Authentication required
 - `500 Internal Server Error` - Server error
 
+> ℹ️ Use `GET /api/v1/orders/stats` for aggregated metrics (total revenue, status breakdowns, etc.).
+
 ---
 
 ### 2. Get Order by ID
 
-**Endpoint:** `GET /api/orders/:id`
+**Endpoint:** `GET /api/v1/orders/:id`
 
 **Description:** Retrieve detailed information about a specific order.
 
@@ -225,21 +233,19 @@ enum FulfillmentStatus {
       "phone": "+92 300 1234567"
     },
     "date": "2025-11-19T14:30:00.000Z",
-    "section": "cafe",
-    "paymentStatus": "paid",
-    "fulfillmentStatus": "fulfilled",
+    "section": "CAFE",
+    "paymentStatus": "PAID",
+    "fulfillmentStatus": "FULFILLED",
     "items": [
       {
         "id": "item-1",
         "productId": "prod-101",
         "productName": "Cappuccino",
         "sku": "CAF-CAP-001",
-        "variant": "Large",
+        "variantId": "variant-large",
         "quantity": 2,
         "price": 350,
-        "total": 700,
-        "image": "/images/cappuccino.jpg",
-        "section": "cafe"
+        "total": 700
       },
       {
         "id": "item-2",
@@ -248,20 +254,21 @@ enum FulfillmentStatus {
         "sku": "CAF-CRO-002",
         "quantity": 1,
         "price": 550,
-        "total": 550,
-        "image": "/images/croissant.jpg",
-        "section": "cafe"
+        "total": 550
       }
     ],
     "itemsCount": 3,
     "subtotal": 1250,
     "tax": 0,
     "shippingCost": 0,
-    "total": "Rs 1,250",
-    "totalNumeric": 1250,
+    "discount": 0,
+    "total": 1250,
+    "totalFormatted": "PKR 1,250",
+    "currency": "PKR",
     "shippingAddress": {
-      "firstName": "Ayesha",
-      "lastName": "Khan",
+      "fullName": "Ayesha Khan",
+      "phone": "+92 300 1234567",
+      "email": "ayesha.khan@email.com",
       "address": "123 Main Street, Gulberg",
       "city": "Lahore",
       "state": "Punjab",
@@ -270,9 +277,11 @@ enum FulfillmentStatus {
     },
     "notes": "Please deliver before 3 PM",
     "tags": ["urgent", "vip"],
+    "paymentMethod": "cash",
     "createdAt": "2025-11-19T14:30:00.000Z",
     "updatedAt": "2025-11-19T15:00:00.000Z",
-    "createdBy": "admin@trio.com"
+    "createdBy": "admin@trio.com",
+    "guestOrder": false
   }
 }
 ```
@@ -286,9 +295,9 @@ enum FulfillmentStatus {
 
 ### 3. Create Order
 
-**Endpoint:** `POST /api/orders`
+**Endpoint:** `POST /api/v1/orders`
 
-**Description:** Create a new order.
+**Description:** Create a new order. Frontend clients **must not** send any price-related fields (`price`, `subtotal`, `tax`, `total`, `discount`, `shippingCost`). The validator rejects them and the backend recalculates everything from authoritative product data.
 
 **🔒 CRITICAL SECURITY NOTE:**
 Never trust client-provided prices, totals, or calculations. The backend MUST:
@@ -299,6 +308,7 @@ Never trust client-provided prices, totals, or calculations. The backend MUST:
 
 **Request Body:**
 
+**Example 1: Single-Category Order (BOOKS only)**
 ```json
 {
   "customer": {
@@ -306,36 +316,75 @@ Never trust client-provided prices, totals, or calculations. The backend MUST:
     "email": "hassan.ali@email.com",
     "phone": "+92 321 9876543"
   },
-  "section": "books",
+  "section": "BOOKS",
   "items": [
     {
-      "productId": "prod-301",
-      "variantId": "variant-501",  // Optional, if product has variants
+      "productId": "9f41980a-0a4e-4c5c-8d28-4222f2d15070",
+      "variantId": "d91d1b33-607d-4bf6-8610-7eab9ee96460",
       "quantity": 2
-      // ❌ DO NOT SEND: price, total (backend calculates these)
     },
     {
-      "productId": "prod-302",
+      "productId": "431513b4-7f2b-4d30-8a0b-4c08a0f31767",
       "quantity": 1
-      // ❌ DO NOT SEND: price, total (backend calculates these)
     }
   ],
-  "paymentStatus": "pending",
-  "fulfillmentStatus": "unfulfilled",
-  "shippingCost": 200,  // Can be sent if calculated by shipping API, but should be validated
-  "discountCode": "SAVE10",  // Optional discount code to apply
+  "paymentStatus": "PENDING",
+  "fulfillmentStatus": "UNFULFILLED",
+  "discountCode": "SAVE10",
   "shippingAddress": {
-    "firstName": "Hassan",
-    "lastName": "Ali",
+    "fullName": "Hassan Ali",
+    "phone": "+92 321 9876543",
+    "email": "hassan.ali@email.com",
     "address": "45 Park Avenue",
     "city": "Karachi",
     "state": "Sindh",
     "postalCode": "75500"
   },
   "notes": "Gift wrap requested",
-  "tags": ["gift", "books"]
+  "tags": ["gift", "BOOKS"],
+  "paymentMethod": "cod"
 }
 ```
+
+**Example 2: Mixed-Category Order (CAFE + FLOWERS + BOOKS) ✨ NEW!**
+```json
+{
+  "customer": {
+    "name": "Sarah Ahmed",
+    "email": "sarah.ahmed@email.com",
+    "phone": "+92 300 5551234"
+  },
+  "items": [
+    {
+      "productId": "cafe-product-uuid-123",
+      "quantity": 2
+    },
+    {
+      "productId": "flowers-product-uuid-456",
+      "quantity": 1
+    },
+    {
+      "productId": "books-product-uuid-789",
+      "quantity": 1
+    }
+  ],
+  "paymentStatus": "PENDING",
+  "fulfillmentStatus": "UNFULFILLED",
+  "shippingAddress": {
+    "fullName": "Sarah Ahmed",
+    "phone": "+92 300 5551234",
+    "address": "10 Garden Road",
+    "city": "Islamabad",
+    "state": "ICT",
+    "postalCode": "44000"
+  },
+  "notes": "Mixed order: Coffee + Flowers + Book",
+  "paymentMethod": "card"
+}
+```
+> 💡 **Note:** In Example 2, the `section` field is omitted. The system will automatically use the section from the first item (CAFE).
+
+> ⚠️ Discount codes are accepted for future compatibility, but the discount service is not wired up yet. Orders will currently be created without applying the discount amount even if a code is supplied.
 
 **Validation Rules:**
 
@@ -344,13 +393,13 @@ Never trust client-provided prices, totals, or calculations. The backend MUST:
 | `customer.name` | Required, min 2 chars | "Customer name is required" |
 | `customer.email` | Required, valid email format | "Valid email address is required" |
 | `customer.phone` | Optional, valid phone format | "Invalid phone number format" |
-| `section` | Required, enum: cafe/flowers/books | "Invalid section" |
+| `section` | Optional, enum: CAFE/FLOWERS/BOOKS. If not provided, uses first item's section. **Supports mixed-category orders** (CAFE + FLOWERS + BOOKS in one order) | "Invalid section" |
 | `items` | Required, min 1 item | "At least one product is required" |
 | `items[].productId` | Required, must exist in DB | "Product not found" |
 | `items[].variantId` | Optional, must exist if provided | "Variant not found" |
 | `items[].quantity` | Required, min 1, max 1000 | "Invalid quantity" |
-| `paymentStatus` | Required, valid enum | "Invalid payment status" |
-| `fulfillmentStatus` | Required, valid enum | "Invalid fulfillment status" |
+| `paymentStatus` | Optional, enum: PENDING/PAID/FAILED/REFUNDED | "Invalid payment status" |
+| `fulfillmentStatus` | Optional, enum: UNFULFILLED/FULFILLED/PARTIAL/SCHEDULED | "Invalid fulfillment status" |
 | `discountCode` | Optional, must be valid if provided | "Invalid discount code" |
 
 **🔒 BACKEND CALCULATION LOGIC (CRITICAL):**
@@ -432,22 +481,8 @@ async function createOrder(requestData) {
   const taxableAmount = calculatedSubtotal - discountAmount;
   const calculatedTax = taxableAmount * taxRate;
 
-  // 4. Validate shipping cost
-  let validatedShippingCost = 0;
-  if (requestData.shippingCost) {
-    // Option A: If you have a shipping API, validate with it
-    // validatedShippingCost = await shippingAPI.calculateCost(address);
-
-    // Option B: If shipping costs are fixed, validate against your rates
-    const shippingRates = await db.settings.getShippingRates();
-    const expectedShipping = shippingRates[requestData.section];
-
-    if (Math.abs(requestData.shippingCost - expectedShipping) > 1) {
-      // Allow small rounding differences but reject large discrepancies
-      throw new Error("Invalid shipping cost");
-    }
-    validatedShippingCost = expectedShipping;
-  }
+  // 4. Validate shipping cost (currently handled server-side)
+  const validatedShippingCost = 0; // Future enhancement
 
   // 5. Calculate final total
   const calculatedTotal = calculatedSubtotal - discountAmount + calculatedTax + validatedShippingCost;
@@ -545,12 +580,17 @@ Without server-side calculation, a malicious user could:
       "phone": "+92 321 9876543"
     },
     "date": "2025-11-19T16:00:00.000Z",
-    "section": "books",
-    "paymentStatus": "pending",
-    "fulfillmentStatus": "unfulfilled",
+    "section": "BOOKS",
+    "paymentStatus": "PENDING",
+    "fulfillmentStatus": "UNFULFILLED",
     "itemsCount": 3,
-    "total": "Rs 4,035",
-    "totalNumeric": 4035,
+    "subtotal": 3800,
+    "tax": 684,
+    "discount": 0,
+    "shippingCost": 0,
+    "total": 4484,
+    "totalFormatted": "PKR 4,484",
+    "currency": "PKR",
     "createdAt": "2025-11-19T16:00:00.000Z"
   }
 }
@@ -567,7 +607,7 @@ Without server-side calculation, a malicious user could:
 
 ### 4. Update Order
 
-**Endpoint:** `PUT /api/orders/:id` or `PATCH /api/orders/:id`
+**Endpoint:** `PUT /api/v1/orders/:id` or `PATCH /api/v1/orders/:id`
 
 **Description:** Update an existing order. Use `PUT` for full update, `PATCH` for partial update.
 
@@ -581,8 +621,8 @@ Without server-side calculation, a malicious user could:
 
 ```json
 {
-  "paymentStatus": "paid",
-  "fulfillmentStatus": "fulfilled",
+  "paymentStatus": "PAID",
+  "fulfillmentStatus": "FULFILLED",
   "notes": "Order delivered successfully"
 }
 ```
@@ -596,8 +636,8 @@ Without server-side calculation, a malicious user could:
   "data": {
     "id": "1",
     "orderNumber": "#1034",
-    "paymentStatus": "paid",
-    "fulfillmentStatus": "fulfilled",
+    "paymentStatus": "PAID",
+    "fulfillmentStatus": "FULFILLED",
     "notes": "Order delivered successfully",
     "updatedAt": "2025-11-19T17:00:00.000Z"
   }
@@ -615,7 +655,7 @@ Without server-side calculation, a malicious user could:
 
 ### 5. Update Payment Status
 
-**Endpoint:** `PATCH /api/orders/:id/payment-status`
+**Endpoint:** `PATCH /api/v1/orders/:id/payment-status`
 
 **Description:** Update only the payment status of an order.
 
@@ -623,7 +663,7 @@ Without server-side calculation, a malicious user could:
 
 ```json
 {
-  "paymentStatus": "paid"
+  "paymentStatus": "PAID"
 }
 ```
 
@@ -636,7 +676,7 @@ Without server-side calculation, a malicious user could:
   "data": {
     "id": "1",
     "orderNumber": "#1034",
-    "paymentStatus": "paid",
+    "paymentStatus": "PAID",
     "updatedAt": "2025-11-19T17:30:00.000Z"
   }
 }
@@ -651,7 +691,7 @@ Without server-side calculation, a malicious user could:
 
 ### 6. Update Fulfillment Status
 
-**Endpoint:** `PATCH /api/orders/:id/fulfillment-status`
+**Endpoint:** `PATCH /api/v1/orders/:id/fulfillment-status`
 
 **Description:** Update only the fulfillment status of an order.
 
@@ -659,7 +699,7 @@ Without server-side calculation, a malicious user could:
 
 ```json
 {
-  "fulfillmentStatus": "fulfilled"
+  "fulfillmentStatus": "FULFILLED"
 }
 ```
 
@@ -672,7 +712,7 @@ Without server-side calculation, a malicious user could:
   "data": {
     "id": "1",
     "orderNumber": "#1034",
-    "fulfillmentStatus": "fulfilled",
+    "fulfillmentStatus": "FULFILLED",
     "updatedAt": "2025-11-19T17:35:00.000Z"
   }
 }
@@ -682,7 +722,7 @@ Without server-side calculation, a malicious user could:
 
 ### 7. Delete Order
 
-**Endpoint:** `DELETE /api/orders/:id`
+**Endpoint:** `DELETE /api/v1/orders/:id`
 
 **Description:** Soft delete an order (or hard delete if specified).
 
@@ -709,13 +749,13 @@ Without server-side calculation, a malicious user could:
 - `200 OK` - Deletion successful
 - `404 Not Found` - Order not found
 - `401 Unauthorized` - Authentication required
-- `403 Forbidden` - Cannot delete fulfilled orders
+- `403 Forbidden` - Cannot delete PAID or FULFILLED orders
 
 ---
 
 ### 8. Export Orders to CSV
 
-**Endpoint:** `GET /api/orders/export`
+**Endpoint:** `GET /api/v1/orders/export`
 
 **Description:** Export orders to CSV format based on filters.
 
@@ -728,8 +768,8 @@ Content-Type: text/csv
 Content-Disposition: attachment; filename="orders-export-2025-11-19.csv"
 
 Order Number,Customer Name,Customer Email,Date,Section,Payment Status,Fulfillment Status,Items,Total
-#1034,"Ayesha Khan",ayesha.khan@email.com,2025-11-19,cafe,paid,fulfilled,3,1250
-#1033,"Ahmed Ali",ahmed.ali@email.com,2025-11-19,flowers,paid,unfulfilled,1,3500
+#1034,"Ayesha Khan",ayesha.khan@email.com,2025-11-19,CAFE,PAID,FULFILLED,3,1250
+#1033,"Ahmed Ali",ahmed.ali@email.com,2025-11-19,FLOWERS,PAID,UNFULFILLED,1,3500
 ```
 
 **Status Codes:**
@@ -741,7 +781,7 @@ Order Number,Customer Name,Customer Email,Date,Section,Payment Status,Fulfillmen
 
 ### 9. Get Order Statistics
 
-**Endpoint:** `GET /api/orders/stats`
+**Endpoint:** `GET /api/v1/orders/stats`
 
 **Description:** Get aggregated order statistics.
 
@@ -751,7 +791,7 @@ Order Number,Customer Name,Customer Email,Date,Section,Payment Status,Fulfillmen
 |-----------|------|----------|-------------|
 | `dateFrom` | string | No | Start date for stats (ISO 8601) |
 | `dateTo` | string | No | End date for stats (ISO 8601) |
-| `section` | string | No | Filter by section |
+| `section` | string | No | Filter by section (`CAFE`, `FLOWERS`, `BOOKS`) |
 
 **Response:**
 
@@ -765,27 +805,27 @@ Order Number,Customer Name,Customer Email,Date,Section,Payment Status,Fulfillmen
       "averageOrderValue": 2500
     },
     "paymentStatus": {
-      "paid": 85,
-      "pending": 10,
-      "refunded": 3,
-      "failed": 2
+      "PAID": 85,
+      "PENDING": 10,
+      "REFUNDED": 3,
+      "FAILED": 2
     },
     "fulfillmentStatus": {
-      "fulfilled": 75,
-      "unfulfilled": 20,
-      "partial": 4,
-      "scheduled": 1
+      "FULFILLED": 75,
+      "UNFULFILLED": 20,
+      "PARTIAL": 4,
+      "SCHEDULED": 1
     },
     "bySection": {
-      "cafe": {
+      "CAFE": {
         "orders": 45,
         "revenue": 67500
       },
-      "flowers": {
+      "FLOWERS": {
         "orders": 30,
         "revenue": 105000
       },
-      "books": {
+      "BOOKS": {
         "orders": 25,
         "revenue": 77500
       }
@@ -798,7 +838,7 @@ Order Number,Customer Name,Customer Email,Date,Section,Payment Status,Fulfillmen
 
 ### 10. Duplicate Order
 
-**Endpoint:** `POST /api/orders/:id/duplicate`
+**Endpoint:** `POST /api/v1/orders/:id/duplicate`
 
 **Description:** Create a duplicate of an existing order.
 
@@ -832,77 +872,87 @@ Order Number,Customer Name,Customer Email,Date,Section,Payment Status,Fulfillmen
 **Valid State Transitions:**
 
 ```
-pending → paid
-pending → failed
-paid → refunded
-failed → pending (retry)
+PENDING → PAID
+PENDING → FAILED
+FAILED → PENDING (retry)
+PAID → REFUNDED
 ```
 
 **Invalid Transitions:**
-- `refunded` → any other status
-- `paid` → `failed`
+- `REFUNDED` → any other status
+- `PAID` → `FAILED`
 
 ### 3. Fulfillment Status Transitions
 
 **Valid State Transitions:**
 
 ```
-unfulfilled → partial → fulfilled
-unfulfilled → scheduled → fulfilled
-unfulfilled → fulfilled (direct)
-scheduled → unfulfilled (cancel schedule)
+UNFULFILLED → PARTIAL → FULFILLED
+UNFULFILLED → SCHEDULED → FULFILLED
+UNFULFILLED → FULFILLED (direct)
+PARTIAL → UNFULFILLED (rollback)
+SCHEDULED → UNFULFILLED (cancel schedule)
+SCHEDULED → PARTIAL/FULFILLED
+FULFILLED → UNFULFILLED (returns/adjusments)
 ```
 
 **Invalid Transitions:**
-- `fulfilled` → `unfulfilled` (cannot unful fill)
-- `fulfilled` → `partial`
+- Any transition not listed above (e.g., `PARTIAL` → `SCHEDULED`)
 
 ### 4. Order Deletion Rules
 
-- Cannot delete orders with `paymentStatus: "paid"` (must refund first)
-- Cannot delete orders with `fulfillmentStatus: "fulfilled"` or `"partial"`
-- Only orders with status `pending` + `unfulfilled` can be deleted
+- Cannot delete orders with `paymentStatus: "PAID"` (must refund first)
+- Cannot delete orders with `fulfillmentStatus: "FULFILLED"`
+- `PARTIAL`/`UNFULFILLED` orders can be deleted when payment is not `PAID`
 - Soft delete by default (add `deletedAt` timestamp)
 - Hard delete only for admin users
 
 ### 5. Order Calculations
 
 ```javascript
-// Tax calculation (18% in Pakistan)
-tax = subtotal * 0.18
-
-// Total calculation
-total = subtotal + tax + shippingCost
-
-// Line item total
-itemTotal = quantity * price
+// Line item total (calculated per product)
+itemTotal = priceFromDatabase * quantity
 
 // Subtotal calculation
-subtotal = sum of all itemTotal
+subtotal = sum(itemTotal)
+
+// Discount (if/when discount service is wired up)
+discount = appliedDiscountAmount || 0
+
+// Tax calculation (18% GST on taxable amount)
+tax = (subtotal - discount) * 0.18
+
+// Shipping (currently 0 until shipping service integration)
+shippingCost = 0
+
+// Final total
+total = subtotal - discount + tax + shippingCost
 ```
 
 ### 6. Inventory Impact
 
-- When order is created with `fulfillmentStatus: "unfulfilled"`:
-  - Reserve inventory (mark as "committed")
-- When `fulfillmentStatus` changes to `"fulfilled"`:
-  - Deduct from inventory
-  - Unreserve committed stock
-- When order is cancelled:
-  - Unreserve inventory
+- When an order is created the stock quantity of each product is immediately decremented to prevent overselling.
+- Inventory adjustments on cancellation/refunds must currently be handled manually (automatic restock logic is still pending).
 
 ### 7. Customer Association
 
-- Customer must exist in database before order creation
-- If customer doesn't exist, create customer first
-- Customer email must be unique
-- Link order to customer via `customerId`
+- Orders can be placed by guests. If no customer exists for the provided email, the order is marked as `guestOrder` and a `guestToken` is issued.
+- When a customer account is later created with the same email, guest orders can be linked to that account.
+- Registered customers update their order statistics (totalOrders, totalSpent, etc.) automatically on each purchase.
 
-### 8. Multi-Section Validation
+### 8. Mixed-Category Orders
 
-- All items in an order must belong to the same section
-- Cannot mix cafe, flowers, and books items in one order
-- `section` field on order must match all items' sections
+✅ **NOW SUPPORTED:** Customers can purchase items from multiple categories in a single order!
+
+- Orders can contain items from CAFE, FLOWERS, and BOOKS sections simultaneously
+- The `section` field is **optional** when creating an order
+- If `section` is not provided, the system automatically uses the first item's section
+- **Example:** A customer can buy a coffee (CAFE) + flowers (FLOWERS) + a book (BOOKS) in ONE checkout
+- **Benefits:**
+  - Better UX - Single checkout for all items
+  - Higher sales - Easier cross-category purchases
+  - Simpler logistics - One order, one delivery
+  - Better analytics - See complete customer purchase behavior
 
 ---
 
@@ -934,7 +984,7 @@ subtotal = sum of all itemTotal
 2. Order Number (clickable link to detail page)
 3. Customer Name
 4. Date (formatted: "2 min ago", "15 min ago", "1 hour ago")
-5. Section (badge with color: cafe=brown, flowers=pink, books=blue)
+5. Section (badge with color: CAFE=brown, FLOWERS=pink, BOOKS=blue)
 6. Payment Status (dropdown, inline editable)
 7. Fulfillment Status (dropdown, inline editable)
 8. Items Count
@@ -944,16 +994,16 @@ subtotal = sum of all itemTotal
 **Status Colors:**
 
 Payment Status:
-- `paid` → Green badge
-- `pending` → Yellow badge
-- `refunded` → Gray badge
-- `failed` → Red badge
+- `PAID` → Green badge
+- `PENDING` → Yellow badge
+- `REFUNDED` → Gray badge
+- `FAILED` → Red badge
 
 Fulfillment Status:
-- `fulfilled` → Blue badge
-- `unfulfilled` → Gray badge
-- `partial` → Orange badge
-- `scheduled` → Purple badge
+- `FULFILLED` → Blue badge
+- `UNFULFILLED` → Gray badge
+- `PARTIAL` → Orange badge
+- `SCHEDULED` → Purple badge
 
 ### 2. Order Detail Page (`/orders/:id`)
 
@@ -978,8 +1028,10 @@ Fulfillment Status:
   - Shipping cost
   - Total (bold)
 - **Shipping Address Card:**
-  - First name, Last name
-  - Address, City, State, Postal code
+  - Full name
+  - Phone
+  - Email (optional)
+  - Address, City, State, Postal code, Country
 
 **Right Column (1/3 width):**
 - **Order Details Card:**
@@ -1021,28 +1073,27 @@ Fulfillment Status:
   - Each item has:
     - Product search input (autocomplete)
     - Quantity input (number, min: 1)
-    - Price input (auto-filled from product)
+    - Price display (read-only, fetched from server product data)
     - Remove button (X)
   - Add product button
   - Validation: at least 1 product required
 - **Payment Section:**
-  - Subtotal input (auto-calculated or manual)
-  - Tax input (18% default or manual)
-  - Shipping input (manual)
-  - Total display (bold, calculated)
+  - Display-only summary card that mirrors backend-calculated subtotal, tax (18%), discount, shipping (currently 0), and total
+  - Provide inline hint that these numbers refresh after backend responds (do not send editable values)
 - **Shipping Address Section:**
-  - First name, Last name
-  - Address
-  - City, State, ZIP
+  - Full name
+  - Phone
+  - Email (optional)
+  - Address, City, State, Postal code, Country
 
 **Right Column:**
 - **Order Details:**
-  - Section dropdown (required)
+  - Section dropdown (optional - auto-detected from items if not provided, supports mixed-category orders)
   - Order date (default: today)
 - **Payment Status:**
-  - Dropdown (default: pending)
+  - Dropdown (default: `PENDING`)
 - **Fulfillment Status:**
-  - Dropdown (default: unfulfilled)
+  - Dropdown (default: `UNFULFILLED`)
 - **Notes:**
   - Textarea
 - **Tags:**
@@ -1053,6 +1104,7 @@ Fulfillment Status:
 - At least one product required
 - All products must be selected (not empty)
 - Email format validation
+- Price/tax/total fields must remain read-only on the client—the API ignores client-provided amounts
 - Show error messages inline (red text below field)
 - Disable save button while saving
 - Confirm before discarding if form has data
@@ -1113,7 +1165,7 @@ Fulfillment Status:
 - ✅ Calculate all totals server-side
 - ✅ Validate discount codes server-side
 - ✅ Apply tax rates from server configuration
-- ✅ Validate shipping costs against shipping API or rate table
+- ✅ Validate shipping costs server-side (currently locked to 0 until rates are configured)
 - ✅ Ignore any price/total fields sent from frontend
 - ✅ Log all order creation attempts with IP address
 - ✅ Monitor for suspicious pricing patterns
@@ -1189,7 +1241,7 @@ if (discount.minOrderAmount && subtotal < discount.minOrderAmount) {
 
 ```javascript
 // Use idempotency key
-POST /api/orders
+POST /api/v1/orders
 Headers:
   Idempotency-Key: unique-uuid-from-frontend
 
@@ -1267,10 +1319,10 @@ if (order.total === 0 || order.total < 10) {
 ```javascript
 // Only allow certain status transitions
 const allowedTransitions = {
-  "pending": ["paid", "failed"],
-  "paid": ["refunded"],
-  "failed": ["pending"],
-  "refunded": [] // Cannot change from refunded
+  PENDING: ["PAID", "FAILED"],
+  PAID: ["REFUNDED"],
+  FAILED: ["PENDING"],
+  REFUNDED: [] // Cannot change from refunded
 };
 
 function validatePaymentStatusChange(currentStatus, newStatus) {
@@ -1280,9 +1332,9 @@ function validatePaymentStatusChange(currentStatus, newStatus) {
     throw new Error(`Cannot change payment status from ${currentStatus} to ${newStatus}`);
   }
 
-  // Additional validation: Only admins can mark as "paid" manually
-  if (newStatus === "paid" && req.user.role !== "admin") {
-    throw new Error("Only admins can manually mark orders as paid");
+  // Additional validation: Only admins can mark as "PAID" manually
+  if (newStatus === "PAID" && req.user.role !== "admin") {
+    throw new Error("Only admins can manually mark orders as PAID");
   }
 }
 ```
@@ -1389,7 +1441,7 @@ app.use((req, res, next) => {
 
 **Request:**
 ```bash
-POST /api/orders
+POST /api/v1/orders
 Content-Type: application/json
 
 {
@@ -1398,24 +1450,19 @@ Content-Type: application/json
     "email": "fatima@email.com",
     "phone": "+92 300 1112222"
   },
-  "section": "cafe",
+  "section": "CAFE",
   "items": [
     {
       "productId": "prod-cafe-001",
-      "quantity": 2,
-      "price": 350
+      "quantity": 2
     },
     {
       "productId": "prod-cafe-015",
-      "quantity": 1,
-      "price": 450
+      "quantity": 1
     }
   ],
-  "paymentStatus": "paid",
-  "fulfillmentStatus": "unfulfilled",
-  "subtotal": 1150,
-  "tax": 207,
-  "shippingCost": 0,
+  "paymentStatus": "PAID",
+  "fulfillmentStatus": "UNFULFILLED",
   "notes": "Extra sugar in coffee"
 }
 ```
@@ -1433,12 +1480,31 @@ Content-Type: application/json
       "email": "fatima@email.com",
       "phone": "+92 300 1112222"
     },
-    "section": "cafe",
-    "paymentStatus": "paid",
-    "fulfillmentStatus": "unfulfilled",
+    "section": "CAFE",
+    "paymentStatus": "PAID",
+    "fulfillmentStatus": "UNFULFILLED",
+    "items": [
+      {
+        "productId": "prod-cafe-001",
+        "quantity": 2,
+        "price": 350,
+        "total": 700
+      },
+      {
+        "productId": "prod-cafe-015",
+        "quantity": 1,
+        "price": 450,
+        "total": 450
+      }
+    ],
     "itemsCount": 3,
-    "total": "Rs 1,357",
-    "totalNumeric": 1357,
+    "subtotal": 1100,
+    "tax": 198,
+    "discount": 0,
+    "shippingCost": 0,
+    "total": 1298,
+    "totalFormatted": "PKR 1,298",
+    "currency": "PKR",
     "createdAt": "2025-11-19T18:30:00.000Z"
   }
 }
@@ -1448,7 +1514,7 @@ Content-Type: application/json
 
 **Request:**
 ```bash
-GET /api/orders?section=flowers&paymentStatus=paid&fulfillmentStatus=unfulfilled&page=1&limit=10
+GET /api/v1/orders?section=FLOWERS&paymentStatus=PAID&fulfillmentStatus=UNFULFILLED&page=1&limit=10
 ```
 
 **Response:**
@@ -1464,11 +1530,12 @@ GET /api/orders?section=flowers&paymentStatus=paid&fulfillmentStatus=unfulfilled
           "name": "Ahmed Ali",
           "email": "ahmed.ali@email.com"
         },
-        "section": "flowers",
-        "paymentStatus": "paid",
-        "fulfillmentStatus": "unfulfilled",
+        "section": "FLOWERS",
+        "paymentStatus": "PAID",
+        "fulfillmentStatus": "UNFULFILLED",
         "itemsCount": 1,
-        "total": "Rs 3,500",
+        "total": 3500,
+        "totalFormatted": "PKR 3,500",
         "date": "2025-11-19T14:15:00.000Z"
       }
     ],
@@ -1476,7 +1543,9 @@ GET /api/orders?section=flowers&paymentStatus=paid&fulfillmentStatus=unfulfilled
       "page": 1,
       "limit": 10,
       "totalPages": 1,
-      "totalOrders": 1
+      "totalOrders": 1,
+      "hasNext": false,
+      "hasPrevious": false
     }
   }
 }
@@ -1486,7 +1555,7 @@ GET /api/orders?section=flowers&paymentStatus=paid&fulfillmentStatus=unfulfilled
 
 **Request:**
 ```bash
-PATCH /api/orders/2/fulfillment-status
+PATCH /api/v1/orders/2/fulfillment-status
 Content-Type: application/json
 
 {
@@ -1502,7 +1571,7 @@ Content-Type: application/json
   "data": {
     "id": "2",
     "orderNumber": "#1033",
-    "fulfillmentStatus": "fulfilled",
+    "fulfillmentStatus": "FULFILLED",
     "updatedAt": "2025-11-19T19:00:00.000Z"
   }
 }
@@ -1512,7 +1581,7 @@ Content-Type: application/json
 
 **Request:**
 ```bash
-GET /api/orders?search=Ahmed
+GET /api/v1/orders?search=Ahmed
 ```
 
 **Response:**
@@ -1528,8 +1597,9 @@ GET /api/orders?search=Ahmed
           "name": "Ahmed Ali",
           "email": "ahmed.ali@email.com"
         },
-        "section": "flowers",
-        "total": "Rs 3,500"
+        "section": "FLOWERS",
+        "total": 3500,
+        "totalFormatted": "PKR 3,500"
       },
       {
         "id": "5",
@@ -1538,8 +1608,9 @@ GET /api/orders?search=Ahmed
           "name": "Zainab Ahmed",
           "email": "zainab.a@email.com"
         },
-        "section": "flowers",
-        "total": "Rs 2,650"
+        "section": "FLOWERS",
+        "total": 2650,
+        "totalFormatted": "PKR 2,650"
       }
     ]
   }

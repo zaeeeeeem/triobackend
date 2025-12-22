@@ -61,12 +61,11 @@ export class OrderService {
    * SECURITY CRITICAL:
    * - Fetches prices from DB (NEVER trusts client)
    * - Validates inventory availability
-   * - Ensures section consistency
    * - Prevents overselling
+   * - Supports mixed-category orders (CAFE + FLOWERS + BOOKS in one order)
    */
   private async validateAndFetchProducts(
-    items: CreateOrderItemDto[],
-    section: Section
+    items: CreateOrderItemDto[]
   ): Promise<ValidatedOrderItem[]> {
     if (items.length === 0) {
       throw new ValidationError('At least one product is required');
@@ -112,14 +111,6 @@ export class OrderService {
 
       if (product.deletedAt) {
         throw new ValidationError(`Product is no longer available: ${productName}`);
-      }
-
-      // Validate section consistency
-      if (product.section !== section) {
-        throw new ValidationError(
-          `All items must belong to the ${section} section. ` +
-          `Found item "${productName}" from ${product.section} section.`
-        );
       }
 
       // Check inventory availability
@@ -425,9 +416,11 @@ export class OrderService {
 
       // 2. Validate and fetch products with DB prices
       const validatedItems = await this.validateAndFetchProducts(
-        data.items,
-        data.section
+        data.items
       );
+
+      // Determine order section (use first item's section for mixed orders)
+      const orderSection = data.section || validatedItems[0].section;
 
       // 3. Apply discount code if provided
       let discountAmount = 0;
@@ -447,7 +440,7 @@ export class OrderService {
       // 4. Validate shipping cost
       const shippingCost = await this.validateShippingCost(
         0, // TODO: Accept from request when shipping is implemented
-        data.section,
+        orderSection,
         data.shippingAddress?.city
       );
 
@@ -483,7 +476,7 @@ export class OrderService {
             customerPhone: data.customer.phone || null,
             guestOrder: !customerId,
             guestToken: !customerId ? `guest-${Date.now()}` : null,
-            section: data.section,
+            section: orderSection,
             paymentStatus: data.paymentStatus || PaymentStatus.PENDING,
             fulfillmentStatus: data.fulfillmentStatus || FulfillmentStatus.UNFULFILLED,
             subtotal: pricing.subtotal,

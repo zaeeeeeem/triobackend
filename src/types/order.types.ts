@@ -17,8 +17,9 @@ export interface CreateOrderDto {
     phone?: string;
   };
 
-  // Section (required) - all items must belong to this section
-  section: Section;
+  // Section (optional) - supports mixed-category orders
+  // If not provided, will use the first item's section
+  section?: Section;
 
   // Items (ONLY productId, variantId, quantity - NO PRICES)
   items: CreateOrderItemDto[];
