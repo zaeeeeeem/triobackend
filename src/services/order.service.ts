@@ -470,7 +470,6 @@ export class OrderService {
         const createdOrder = await tx.order.create({
           data: {
             orderNumber,
-            customerId: customerId || null,
             customerEmail: data.customer.email,
             customerName: data.customer.name,
             customerPhone: data.customer.phone || null,
@@ -490,6 +489,11 @@ export class OrderService {
             tags: data.tags || [],
             orderDate: new Date(),
             createdBy: createdBy || null,
+            customer: customerId
+              ? {
+                  connect: { id: customerId },
+                }
+              : undefined,
           },
           include: {
             items: true,
