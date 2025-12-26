@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.deleteOrderQueryValidator = exports.orderIdParamValidator = exports.orderStatsQueryValidator = exports.orderQueryValidator = exports.updateFulfillmentStatusValidator = exports.updatePaymentStatusValidator = exports.updateOrderValidator = exports.createOrderValidator = void 0;
+exports.deleteOrderQueryValidator = exports.orderIdParamValidator = exports.orderStatsQueryValidator = exports.orderQueryValidator = exports.updateOrderStatusValidator = exports.updatePaymentStatusValidator = exports.updateOrderValidator = exports.createOrderValidator = void 0;
 const express_validator_1 = require("express-validator");
 /**
  * Validation schemas for order-related endpoints
@@ -105,11 +105,11 @@ exports.createOrderValidator = [
         .optional()
         .isIn(['PENDING', 'PAID', 'FAILED', 'REFUNDED'])
         .withMessage('Invalid payment status'),
-    // Fulfillment status
-    (0, express_validator_1.body)('fulfillmentStatus')
+    // Order status
+    (0, express_validator_1.body)('orderStatus')
         .optional()
-        .isIn(['UNFULFILLED', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED'])
-        .withMessage('Invalid fulfillment status'),
+        .isIn(['PENDING', 'CONFIRMED', 'PREPARING', 'READY', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED'])
+        .withMessage('Invalid order status'),
     // Notes
     (0, express_validator_1.body)('notes')
         .optional()
@@ -158,10 +158,10 @@ exports.updateOrderValidator = [
         .optional()
         .isIn(['PENDING', 'PAID', 'FAILED', 'REFUNDED'])
         .withMessage('Invalid payment status'),
-    (0, express_validator_1.body)('fulfillmentStatus')
+    (0, express_validator_1.body)('orderStatus')
         .optional()
-        .isIn(['UNFULFILLED', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED'])
-        .withMessage('Invalid fulfillment status'),
+        .isIn(['PENDING', 'CONFIRMED', 'PREPARING', 'READY', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED'])
+        .withMessage('Invalid order status'),
     (0, express_validator_1.body)('notes')
         .optional()
         .trim()
@@ -191,12 +191,12 @@ exports.updatePaymentStatusValidator = [
         .withMessage('Payment status must be one of: PENDING, PAID, FAILED, REFUNDED'),
 ];
 // ============================================
-// UPDATE FULFILLMENT STATUS VALIDATION
+// UPDATE ORDER STATUS VALIDATION
 // ============================================
-exports.updateFulfillmentStatusValidator = [
-    (0, express_validator_1.body)('fulfillmentStatus')
-        .isIn(['UNFULFILLED', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED'])
-        .withMessage('Fulfillment status must be one of: UNFULFILLED, PROCESSING, SHIPPED, DELIVERED, CANCELLED'),
+exports.updateOrderStatusValidator = [
+    (0, express_validator_1.body)('orderStatus')
+        .isIn(['PENDING', 'CONFIRMED', 'PREPARING', 'READY', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED'])
+        .withMessage('Order status must be one of: PENDING, CONFIRMED, PREPARING, READY, OUT_FOR_DELIVERY, DELIVERED, CANCELLED'),
 ];
 // ============================================
 // ORDER QUERY PARAMS VALIDATION
@@ -226,10 +226,10 @@ exports.orderQueryValidator = [
         .optional()
         .isIn(['PENDING', 'PAID', 'FAILED', 'REFUNDED'])
         .withMessage('Invalid payment status'),
-    (0, express_validator_1.query)('fulfillmentStatus')
+    (0, express_validator_1.query)('orderStatus')
         .optional()
-        .isIn(['UNFULFILLED', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED'])
-        .withMessage('Invalid fulfillment status'),
+        .isIn(['PENDING', 'CONFIRMED', 'PREPARING', 'READY', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED'])
+        .withMessage('Invalid order status'),
     (0, express_validator_1.query)('customerId')
         .optional()
         .isUUID()

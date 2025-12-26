@@ -70,7 +70,7 @@ export declare class CustomerService {
             guestOrder: boolean;
             guestToken: string | null;
             paymentStatus: import(".prisma/client").$Enums.PaymentStatus;
-            fulfillmentStatus: import(".prisma/client").$Enums.FulfillmentStatus;
+            orderStatus: import(".prisma/client").$Enums.OrderStatus;
             subtotal: import("@prisma/client/runtime/library").Decimal;
             tax: import("@prisma/client/runtime/library").Decimal;
             shippingCost: import("@prisma/client/runtime/library").Decimal;
@@ -131,7 +131,7 @@ export declare class CustomerService {
         guestOrder: boolean;
         guestToken: string | null;
         paymentStatus: import(".prisma/client").$Enums.PaymentStatus;
-        fulfillmentStatus: import(".prisma/client").$Enums.FulfillmentStatus;
+        orderStatus: import(".prisma/client").$Enums.OrderStatus;
         subtotal: import("@prisma/client/runtime/library").Decimal;
         tax: import("@prisma/client/runtime/library").Decimal;
         shippingCost: import("@prisma/client/runtime/library").Decimal;

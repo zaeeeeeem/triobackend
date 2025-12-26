@@ -19,7 +19,7 @@ export declare class GuestOrderService {
             date: Date;
             total: import("@prisma/client/runtime/library").Decimal;
             paymentStatus: import(".prisma/client").$Enums.PaymentStatus;
-            fulfillmentStatus: import(".prisma/client").$Enums.FulfillmentStatus;
+            orderStatus: import(".prisma/client").$Enums.OrderStatus;
             items: {
                 id: string;
                 price: import("@prisma/client/runtime/library").Decimal;

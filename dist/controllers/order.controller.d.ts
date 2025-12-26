@@ -36,10 +36,10 @@ export declare class OrderController {
      */
     updatePaymentStatus(req: Request, res: Response, next: NextFunction): Promise<void>;
     /**
-     * Update fulfillment status
-     * PATCH /api/v1/orders/:orderId/fulfillment-status
+     * Update order status
+     * PATCH /api/v1/orders/:orderId/order-status
      */
-    updateFulfillmentStatus(req: Request, res: Response, next: NextFunction): Promise<void>;
+    updateOrderStatus(req: Request, res: Response, next: NextFunction): Promise<void>;
     /**
      * Delete order
      * DELETE /api/v1/orders/:orderId

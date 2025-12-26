@@ -242,18 +242,22 @@ class OrderService {
         }
     }
     /**
-     * Validate fulfillment status transition
+     * Validate order status transition for food delivery workflow
      */
-    validateFulfillmentStatusTransition(currentStatus, newStatus) {
+    validateOrderStatusTransition(currentStatus, newStatus) {
         const allowedTransitions = {
-            UNFULFILLED: ['FULFILLED', 'PARTIAL', 'SCHEDULED'],
-            FULFILLED: ['UNFULFILLED'], // Can revert
-            PARTIAL: ['FULFILLED', 'UNFULFILLED'],
-            SCHEDULED: ['FULFILLED', 'UNFULFILLED', 'PARTIAL'],
+            PENDING: ['CONFIRMED', 'CANCELLED'],
+            CONFIRMED: ['PREPARING', 'CANCELLED'],
+            PREPARING: ['READY', 'CANCELLED'],
+            READY: ['OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED'], // Can mark delivered for pickup orders
+            OUT_FOR_DELIVERY: ['DELIVERED', 'CANCELLED'],
+            DELIVERED: [], // Terminal state - cannot change
+            CANCELLED: [], // Terminal state - cannot change
         };
         const allowed = allowedTransitions[currentStatus];
         if (!allowed || !allowed.includes(newStatus)) {
-            throw new errors_1.ValidationError(`Cannot change fulfillment status from ${currentStatus} to ${newStatus}`);
+            throw new errors_1.ValidationError(`Cannot change order status from ${currentStatus} to ${newStatus}. ` +
+                `Allowed transitions: ${allowed.join(', ') || 'none'}`);
         }
     }
     /**
@@ -272,7 +276,7 @@ class OrderService {
             date: order.orderDate,
             section: order.section,
             paymentStatus: order.paymentStatus,
-            fulfillmentStatus: order.fulfillmentStatus,
+            orderStatus: order.orderStatus,
             items: order.items?.map((item) => ({
                 id: item.id,
                 productId: item.productId,
@@ -377,7 +381,7 @@ class OrderService {
                         guestToken: !customerId ? `guest-${Date.now()}` : null,
                         section: orderSection,
                         paymentStatus: data.paymentStatus || client_1.PaymentStatus.PENDING,
-                        fulfillmentStatus: data.fulfillmentStatus || client_1.FulfillmentStatus.UNFULFILLED,
+                        orderStatus: data.orderStatus || client_1.OrderStatus.PENDING,
                         subtotal: pricing.subtotal,
                         tax: pricing.tax,
                         discount: pricing.discount,
@@ -505,8 +509,8 @@ class OrderService {
         if (params.paymentStatus) {
             where.paymentStatus = params.paymentStatus;
         }
-        if (params.fulfillmentStatus) {
-            where.fulfillmentStatus = params.fulfillmentStatus;
+        if (params.orderStatus) {
+            where.orderStatus = params.orderStatus;
         }
         if (params.customerId) {
             where.customerId = params.customerId;
@@ -567,15 +571,15 @@ class OrderService {
         if (data.paymentStatus) {
             this.validatePaymentStatusTransition(existingOrder.paymentStatus, data.paymentStatus);
         }
-        if (data.fulfillmentStatus) {
-            this.validateFulfillmentStatusTransition(existingOrder.fulfillmentStatus, data.fulfillmentStatus);
+        if (data.orderStatus) {
+            this.validateOrderStatusTransition(existingOrder.orderStatus, data.orderStatus);
         }
         // Update order
         const updatedOrder = await database_1.default.order.update({
             where: { id: orderId },
             data: {
                 paymentStatus: data.paymentStatus,
-                fulfillmentStatus: data.fulfillmentStatus,
+                orderStatus: data.orderStatus,
                 notes: data.notes,
                 tags: data.tags,
                 paymentMethod: data.paymentMethod,
@@ -612,9 +616,9 @@ class OrderService {
         return this.transformOrderToResponse(updatedOrder);
     }
     /**
-     * Update fulfillment status only
+     * Update order status only
      */
-    async updateFulfillmentStatus(orderId, newStatus) {
+    async updateOrderStatus(orderId, newStatus) {
         const existingOrder = await database_1.default.order.findUnique({
             where: { id: orderId, deletedAt: null },
         });
@@ -622,16 +626,16 @@ class OrderService {
             throw new errors_1.NotFoundError('Order not found');
         }
         // Validate transition
-        this.validateFulfillmentStatusTransition(existingOrder.fulfillmentStatus, newStatus);
+        this.validateOrderStatusTransition(existingOrder.orderStatus, newStatus);
         const updatedOrder = await database_1.default.order.update({
             where: { id: orderId },
-            data: { fulfillmentStatus: newStatus },
+            data: { orderStatus: newStatus },
             include: {
                 items: true,
                 shippingAddress: true,
             },
         });
-        logger_1.logger.info(`Fulfillment status updated for ${updatedOrder.orderNumber}: ${newStatus}`);
+        logger_1.logger.info(`Order status updated for ${updatedOrder.orderNumber}: ${newStatus}`);
         return this.transformOrderToResponse(updatedOrder);
     }
     /**
@@ -648,9 +652,9 @@ class OrderService {
         if (order.paymentStatus === client_1.PaymentStatus.PAID) {
             throw new errors_1.ValidationError('Cannot delete paid orders. Please refund the order first.');
         }
-        // Business rule: Cannot delete fulfilled orders
-        if (order.fulfillmentStatus === client_1.FulfillmentStatus.FULFILLED) {
-            throw new errors_1.ValidationError('Cannot delete orders that have been shipped or delivered');
+        // Business rule: Cannot delete delivered orders
+        if (order.orderStatus === client_1.OrderStatus.DELIVERED) {
+            throw new errors_1.ValidationError('Cannot delete orders that have been delivered');
         }
         if (hard) {
             // Hard delete (admin only)
@@ -741,7 +745,7 @@ class OrderService {
             select: {
                 total: true,
                 paymentStatus: true,
-                fulfillmentStatus: true,
+                orderStatus: true,
                 section: true,
             },
         });
@@ -759,15 +763,18 @@ class OrderService {
         orders.forEach((order) => {
             paymentStatus[order.paymentStatus]++;
         });
-        // Calculate fulfillment status breakdown
-        const fulfillmentStatus = {
-            UNFULFILLED: 0,
-            FULFILLED: 0,
-            PARTIAL: 0,
-            SCHEDULED: 0,
+        // Calculate order status breakdown
+        const orderStatus = {
+            PENDING: 0,
+            CONFIRMED: 0,
+            PREPARING: 0,
+            READY: 0,
+            OUT_FOR_DELIVERY: 0,
+            DELIVERED: 0,
+            CANCELLED: 0,
         };
         orders.forEach((order) => {
-            fulfillmentStatus[order.fulfillmentStatus]++;
+            orderStatus[order.orderStatus]++;
         });
         // Calculate by section
         const bySection = {
@@ -786,7 +793,7 @@ class OrderService {
                 averageOrderValue: Math.round(averageOrderValue * 100) / 100,
             },
             paymentStatus,
-            fulfillmentStatus,
+            orderStatus,
             bySection,
         };
     }
@@ -807,7 +814,7 @@ class OrderService {
             'Date',
             'Section',
             'Payment Status',
-            'Fulfillment Status',
+            'Order Status',
             'Items Count',
             'Total',
         ];
@@ -819,7 +826,7 @@ class OrderService {
             order.date.toISOString().split('T')[0], // Date only
             order.section,
             order.paymentStatus,
-            order.fulfillmentStatus,
+            order.orderStatus,
             order.itemsCount.toString(),
             order.total.toFixed(2),
         ]);

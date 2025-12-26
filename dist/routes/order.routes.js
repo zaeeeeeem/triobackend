@@ -110,9 +110,9 @@ const router = (0, express_1.Router)();
  *               paymentStatus:
  *                 type: string
  *                 enum: [PENDING, PAID, FAILED, REFUNDED]
- *               fulfillmentStatus:
+ *               orderStatus:
  *                 type: string
- *                 enum: [UNFULFILLED, PROCESSING, SHIPPED, DELIVERED, CANCELLED]
+ *                 enum: [PENDING, CONFIRMED, PREPARING, READY, OUT_FOR_DELIVERY, DELIVERED, CANCELLED]
  *               notes:
  *                 type: string
  *                 maxLength: 1000
@@ -208,10 +208,10 @@ router.post('/', customer_auth_1.optionalCustomerAuth, order_validator_1.createO
  *           type: string
  *           enum: [PENDING, PAID, FAILED, REFUNDED]
  *       - in: query
- *         name: fulfillmentStatus
+ *         name: orderStatus
  *         schema:
  *           type: string
- *           enum: [UNFULFILLED, PROCESSING, SHIPPED, DELIVERED, CANCELLED]
+ *           enum: [PENDING, CONFIRMED, PREPARING, READY, OUT_FOR_DELIVERY, DELIVERED, CANCELLED]
  *       - in: query
  *         name: customerId
  *         schema:
@@ -299,10 +299,10 @@ router.get('/stats', auth_1.authenticate, order_validator_1.orderStatsQueryValid
  *           type: string
  *           enum: [PENDING, PAID, FAILED, REFUNDED]
  *       - in: query
- *         name: fulfillmentStatus
+ *         name: orderStatus
  *         schema:
  *           type: string
- *           enum: [UNFULFILLED, PROCESSING, SHIPPED, DELIVERED, CANCELLED]
+ *           enum: [PENDING, CONFIRMED, PREPARING, READY, OUT_FOR_DELIVERY, DELIVERED, CANCELLED]
  *       - in: query
  *         name: dateFrom
  *         schema:
@@ -370,9 +370,9 @@ router.get('/:orderId', auth_1.authenticate, order_validator_1.orderIdParamValid
  *               paymentStatus:
  *                 type: string
  *                 enum: [PENDING, PAID, FAILED, REFUNDED]
- *               fulfillmentStatus:
+ *               orderStatus:
  *                 type: string
- *                 enum: [UNFULFILLED, PROCESSING, SHIPPED, DELIVERED, CANCELLED]
+ *                 enum: [PENDING, CONFIRMED, PREPARING, READY, OUT_FOR_DELIVERY, DELIVERED, CANCELLED]
  *               notes:
  *                 type: string
  *               tags:
@@ -446,16 +446,16 @@ router.patch('/:orderId/payment-status', auth_1.authenticate, order_validator_1.
  *             required:
  *               - fulfillmentStatus
  *             properties:
- *               fulfillmentStatus:
+ *               orderStatus:
  *                 type: string
- *                 enum: [UNFULFILLED, PROCESSING, SHIPPED, DELIVERED, CANCELLED]
+ *                 enum: [PENDING, CONFIRMED, PREPARING, READY, OUT_FOR_DELIVERY, DELIVERED, CANCELLED]
  *     responses:
  *       200:
  *         description: Fulfillment status updated
  *       400:
  *         description: Invalid status transition
  */
-router.patch('/:orderId/fulfillment-status', auth_1.authenticate, order_validator_1.orderIdParamValidator, order_validator_1.updateFulfillmentStatusValidator, order_controller_1.orderController.updateFulfillmentStatus);
+router.patch('/:orderId/order-status', auth_1.authenticate, order_validator_1.orderIdParamValidator, order_validator_1.updateOrderStatusValidator, order_controller_1.orderController.updateOrderStatus);
 /**
  * @swagger
  * /orders/{orderId}/duplicate:

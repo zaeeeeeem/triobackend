@@ -94,7 +94,7 @@ class OrderController {
                 search: req.query.search,
                 section: req.query.section,
                 paymentStatus: req.query.paymentStatus,
-                fulfillmentStatus: req.query.fulfillmentStatus,
+                orderStatus: req.query.orderStatus,
                 customerId: req.query.customerId,
                 sortBy: req.query.sortBy,
                 sortOrder: req.query.sortOrder,
@@ -160,22 +160,22 @@ class OrderController {
         }
     }
     /**
-     * Update fulfillment status
-     * PATCH /api/v1/orders/:orderId/fulfillment-status
+     * Update order status
+     * PATCH /api/v1/orders/:orderId/order-status
      */
-    async updateFulfillmentStatus(req, res, next) {
+    async updateOrderStatus(req, res, next) {
         try {
             const errors = (0, express_validator_1.validationResult)(req);
             if (!errors.isEmpty()) {
                 throw new errors_1.ValidationError('Validation failed', { errors: errors.array() });
             }
             const { orderId } = req.params;
-            const { fulfillmentStatus } = req.body;
-            const order = await order_service_1.orderService.updateFulfillmentStatus(orderId, fulfillmentStatus);
-            logger_1.logger.info(`Fulfillment status updated for ${order.orderNumber}: ${fulfillmentStatus}`);
+            const { orderStatus } = req.body;
+            const order = await order_service_1.orderService.updateOrderStatus(orderId, orderStatus);
+            logger_1.logger.info(`Order status updated for ${order.orderNumber}: ${orderStatus}`);
             res.status(200).json({
                 success: true,
-                message: 'Fulfillment status updated successfully',
+                message: 'Order status updated successfully',
                 data: order,
             });
         }
@@ -269,7 +269,7 @@ class OrderController {
                 search: req.query.search,
                 section: req.query.section,
                 paymentStatus: req.query.paymentStatus,
-                fulfillmentStatus: req.query.fulfillmentStatus,
+                orderStatus: req.query.orderStatus,
                 dateFrom: req.query.dateFrom,
                 dateTo: req.query.dateTo,
             };

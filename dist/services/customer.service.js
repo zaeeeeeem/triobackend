@@ -196,8 +196,8 @@ class CustomerService {
         if (params.paymentStatus) {
             where.paymentStatus = params.paymentStatus;
         }
-        if (params.fulfillmentStatus) {
-            where.fulfillmentStatus = params.fulfillmentStatus;
+        if (params.orderStatus) {
+            where.orderStatus = params.orderStatus;
         }
         if (params.dateFrom || params.dateTo) {
             where.orderDate = {};

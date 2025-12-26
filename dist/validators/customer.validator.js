@@ -236,10 +236,10 @@ exports.getOrdersValidator = [
         .optional()
         .isIn(['PENDING', 'PAID', 'FAILED', 'REFUNDED'])
         .withMessage('Invalid payment status'),
-    (0, express_validator_1.query)('fulfillmentStatus')
+    (0, express_validator_1.query)('orderStatus')
         .optional()
-        .isIn(['PENDING', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED'])
-        .withMessage('Invalid fulfillment status'),
+        .isIn(['PENDING', 'CONFIRMED', 'PREPARING', 'READY', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED'])
+        .withMessage('Invalid order status'),
 ];
 exports.guestOrderLookupValidator = [
     (0, express_validator_1.body)('email')

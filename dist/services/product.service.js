@@ -480,12 +480,12 @@ class ProductService {
     }
     async deleteProduct(id, force = false) {
         const product = await this.getProductById(id);
-        // Check for active orders
+        // Check for active orders (not delivered or cancelled)
         const activeOrders = await database_1.default.orderItem.count({
             where: {
                 productId: id,
                 order: {
-                    fulfillmentStatus: { in: ['UNFULFILLED', 'PARTIAL'] },
+                    orderStatus: { in: ['PENDING', 'CONFIRMED', 'PREPARING', 'READY', 'OUT_FOR_DELIVERY'] },
                 },
             },
         });

@@ -1,5 +1,5 @@
 import { CreateOrderDto, UpdateOrderDto, OrderQueryParams, OrderResponse, OrderListResponse, OrderStatsBySection } from '../types/order.types';
-import { PaymentStatus, FulfillmentStatus, Section } from '@prisma/client';
+import { PaymentStatus, OrderStatus, Section } from '@prisma/client';
 interface AuthenticatedCustomerContext {
     id: string;
     email: string;
@@ -70,9 +70,9 @@ export declare class OrderService {
      */
     private validatePaymentStatusTransition;
     /**
-     * Validate fulfillment status transition
+     * Validate order status transition for food delivery workflow
      */
-    private validateFulfillmentStatusTransition;
+    private validateOrderStatusTransition;
     /**
      * Transform database order to response format
      */
@@ -108,9 +108,9 @@ export declare class OrderService {
      */
     updatePaymentStatus(orderId: string, newStatus: PaymentStatus): Promise<OrderResponse>;
     /**
-     * Update fulfillment status only
+     * Update order status only
      */
-    updateFulfillmentStatus(orderId: string, newStatus: FulfillmentStatus): Promise<OrderResponse>;
+    updateOrderStatus(orderId: string, newStatus: OrderStatus): Promise<OrderResponse>;
     /**
      * Delete order (soft delete by default)
      */
