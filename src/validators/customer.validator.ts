@@ -280,10 +280,10 @@ export const getOrdersValidator = [
     .isIn(['PENDING', 'PAID', 'FAILED', 'REFUNDED'])
     .withMessage('Invalid payment status'),
 
-  query('fulfillmentStatus')
+  query('orderStatus')
     .optional()
-    .isIn(['PENDING', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED'])
-    .withMessage('Invalid fulfillment status'),
+    .isIn(['PENDING', 'CONFIRMED', 'PREPARING', 'READY', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED'])
+    .withMessage('Invalid order status'),
 ];
 
 export const guestOrderLookupValidator = [

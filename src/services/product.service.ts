@@ -540,12 +540,12 @@ export class ProductService {
   async deleteProduct(id: string, force: boolean = false) {
     const product = await this.getProductById(id);
 
-    // Check for active orders
+    // Check for active orders (not delivered or cancelled)
     const activeOrders = await prisma.orderItem.count({
       where: {
         productId: id,
         order: {
-          fulfillmentStatus: { in: ['UNFULFILLED', 'PARTIAL'] },
+          orderStatus: { in: ['PENDING', 'CONFIRMED', 'PREPARING', 'READY', 'OUT_FOR_DELIVERY'] },
         },
       },
     });

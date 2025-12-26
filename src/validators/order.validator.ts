@@ -125,11 +125,11 @@ export const createOrderValidator = [
     .isIn(['PENDING', 'PAID', 'FAILED', 'REFUNDED'])
     .withMessage('Invalid payment status'),
 
-  // Fulfillment status
-  body('fulfillmentStatus')
+  // Order status
+  body('orderStatus')
     .optional()
-    .isIn(['UNFULFILLED', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED'])
-    .withMessage('Invalid fulfillment status'),
+    .isIn(['PENDING', 'CONFIRMED', 'PREPARING', 'READY', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED'])
+    .withMessage('Invalid order status'),
 
   // Notes
   body('notes')
@@ -189,10 +189,10 @@ export const updateOrderValidator = [
     .isIn(['PENDING', 'PAID', 'FAILED', 'REFUNDED'])
     .withMessage('Invalid payment status'),
 
-  body('fulfillmentStatus')
+  body('orderStatus')
     .optional()
-    .isIn(['UNFULFILLED', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED'])
-    .withMessage('Invalid fulfillment status'),
+    .isIn(['PENDING', 'CONFIRMED', 'PREPARING', 'READY', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED'])
+    .withMessage('Invalid order status'),
 
   body('notes')
     .optional()
@@ -229,13 +229,13 @@ export const updatePaymentStatusValidator = [
 ];
 
 // ============================================
-// UPDATE FULFILLMENT STATUS VALIDATION
+// UPDATE ORDER STATUS VALIDATION
 // ============================================
 
-export const updateFulfillmentStatusValidator = [
-  body('fulfillmentStatus')
-    .isIn(['UNFULFILLED', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED'])
-    .withMessage('Fulfillment status must be one of: UNFULFILLED, PROCESSING, SHIPPED, DELIVERED, CANCELLED'),
+export const updateOrderStatusValidator = [
+  body('orderStatus')
+    .isIn(['PENDING', 'CONFIRMED', 'PREPARING', 'READY', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED'])
+    .withMessage('Order status must be one of: PENDING, CONFIRMED, PREPARING, READY, OUT_FOR_DELIVERY, DELIVERED, CANCELLED'),
 ];
 
 // ============================================
@@ -272,10 +272,10 @@ export const orderQueryValidator = [
     .isIn(['PENDING', 'PAID', 'FAILED', 'REFUNDED'])
     .withMessage('Invalid payment status'),
 
-  query('fulfillmentStatus')
+  query('orderStatus')
     .optional()
-    .isIn(['UNFULFILLED', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED'])
-    .withMessage('Invalid fulfillment status'),
+    .isIn(['PENDING', 'CONFIRMED', 'PREPARING', 'READY', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED'])
+    .withMessage('Invalid order status'),
 
   query('customerId')
     .optional()

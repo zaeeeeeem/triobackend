@@ -359,8 +359,8 @@ model Order {
   section     Section
 
   // Status
-  paymentStatus     PaymentStatus     @default(PENDING) @map("payment_status")
-  fulfillmentStatus FulfillmentStatus @default(UNFULFILLED) @map("fulfillment_status")
+  paymentStatus PaymentStatus @default(PENDING) @map("payment_status")
+  orderStatus   OrderStatus   @default(PENDING) @map("order_status")
 
   // Pricing
   subtotal     Decimal @db.Decimal(10, 2)
@@ -394,7 +394,7 @@ model Order {
   @@index([customerEmail]) // Index for guest order lookup
   @@index([section])
   @@index([paymentStatus])
-  @@index([fulfillmentStatus])
+  @@index([orderStatus])
   @@index([orderDate(sort: Desc)])
   @@index([orderNumber])
   @@index([guestToken])
@@ -450,11 +450,14 @@ enum PaymentStatus {
   FAILED
 }
 
-enum FulfillmentStatus {
-  FULFILLED
-  UNFULFILLED
-  PARTIAL
-  SCHEDULED
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  PREPARING
+  READY
+  OUT_FOR_DELIVERY
+  DELIVERED
+  CANCELLED
 }
 
 // =====================================================

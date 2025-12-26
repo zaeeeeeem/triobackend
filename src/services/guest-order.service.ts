@@ -122,7 +122,7 @@ export class GuestOrderService {
           orderDate: true,
           total: true,
           paymentStatus: true,
-          fulfillmentStatus: true,
+          orderStatus: true,
           customerId: true,
           items: {
             select: {
@@ -159,7 +159,7 @@ export class GuestOrderService {
           date: order.orderDate,
           total: order.total,
           paymentStatus: order.paymentStatus,
-          fulfillmentStatus: order.fulfillmentStatus,
+          orderStatus: order.orderStatus,
           items: order.items,
           shippingAddress: order.shippingAddress,
         },

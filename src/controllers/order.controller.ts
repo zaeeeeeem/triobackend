@@ -9,7 +9,7 @@ import {
   CreateOrderDto,
   UpdateOrderDto,
   UpdatePaymentStatusDto,
-  UpdateFulfillmentStatusDto,
+  UpdateOrderStatusDto,
   OrderQueryParams,
 } from '../types/order.types';
 
@@ -112,7 +112,7 @@ export class OrderController {
         search: req.query.search as string,
         section: req.query.section as any,
         paymentStatus: req.query.paymentStatus as any,
-        fulfillmentStatus: req.query.fulfillmentStatus as any,
+        orderStatus: req.query.orderStatus as any,
         customerId: req.query.customerId as string,
         sortBy: req.query.sortBy as any,
         sortOrder: req.query.sortOrder as any,
@@ -188,10 +188,10 @@ export class OrderController {
   }
 
   /**
-   * Update fulfillment status
-   * PATCH /api/v1/orders/:orderId/fulfillment-status
+   * Update order status
+   * PATCH /api/v1/orders/:orderId/order-status
    */
-  async updateFulfillmentStatus(req: Request, res: Response, next: NextFunction) {
+  async updateOrderStatus(req: Request, res: Response, next: NextFunction) {
     try {
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
@@ -199,17 +199,17 @@ export class OrderController {
       }
 
       const { orderId } = req.params;
-      const { fulfillmentStatus }: UpdateFulfillmentStatusDto = req.body;
+      const { orderStatus }: UpdateOrderStatusDto = req.body;
 
-      const order = await orderService.updateFulfillmentStatus(orderId, fulfillmentStatus);
+      const order = await orderService.updateOrderStatus(orderId, orderStatus);
 
       logger.info(
-        `Fulfillment status updated for ${order.orderNumber}: ${fulfillmentStatus}`
+        `Order status updated for ${order.orderNumber}: ${orderStatus}`
       );
 
       res.status(200).json({
         success: true,
-        message: 'Fulfillment status updated successfully',
+        message: 'Order status updated successfully',
         data: order,
       });
     } catch (error) {
@@ -317,7 +317,7 @@ export class OrderController {
         search: req.query.search as string,
         section: req.query.section as any,
         paymentStatus: req.query.paymentStatus as any,
-        fulfillmentStatus: req.query.fulfillmentStatus as any,
+        orderStatus: req.query.orderStatus as any,
         dateFrom: req.query.dateFrom as string,
         dateTo: req.query.dateTo as string,
       };

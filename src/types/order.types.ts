@@ -1,5 +1,5 @@
 // import { Decimal } from '@prisma/client/runtime/library';
-import { PaymentStatus, FulfillmentStatus, Section } from '@prisma/client';
+import { PaymentStatus, OrderStatus, Section } from '@prisma/client';
 
 // ============================================
 // REQUEST DTOs (What Frontend Sends)
@@ -30,9 +30,9 @@ export interface CreateOrderDto {
   // Shipping address (required for physical goods delivery)
   shippingAddress?: CreateShippingAddressDto;
 
-  // Initial statuses (default: PENDING, UNFULFILLED)
+  // Initial statuses (default: PENDING, PENDING)
   paymentStatus?: PaymentStatus;
-  fulfillmentStatus?: FulfillmentStatus;
+  orderStatus?: OrderStatus;
 
   // Optional metadata
   notes?: string;
@@ -79,7 +79,7 @@ export interface CreateShippingAddressDto {
  */
 export interface UpdateOrderDto {
   paymentStatus?: PaymentStatus;
-  fulfillmentStatus?: FulfillmentStatus;
+  orderStatus?: OrderStatus;
   notes?: string;
   tags?: string[];
   paymentMethod?: string;
@@ -93,10 +93,10 @@ export interface UpdatePaymentStatusDto {
 }
 
 /**
- * DTO for updating fulfillment status only
+ * DTO for updating order status only
  */
-export interface UpdateFulfillmentStatusDto {
-  fulfillmentStatus: FulfillmentStatus;
+export interface UpdateOrderStatusDto {
+  orderStatus: OrderStatus;
 }
 
 // ============================================
@@ -117,7 +117,7 @@ export interface OrderQueryParams {
   // Filters
   section?: Section;
   paymentStatus?: PaymentStatus;
-  fulfillmentStatus?: FulfillmentStatus;
+  orderStatus?: OrderStatus;
   customerId?: string; // Filter by specific customer
 
   // Sorting
@@ -152,7 +152,7 @@ export interface OrderResponse {
   date: Date;
   section: Section;
   paymentStatus: PaymentStatus;
-  fulfillmentStatus: FulfillmentStatus;
+  orderStatus: OrderStatus;
 
   // Items
   items: OrderItemResponse[];
@@ -234,9 +234,8 @@ export interface OrderListResponse {
 export interface OrderStats {
   totalOrders: number;
   paidOrders: number;
-  pendingOrders: number;
-  fulfilledOrders: number;
-  unfulfilledOrders: number;
+  pendingPaymentOrders: number;
+  ordersByStatus: Record<OrderStatus, number>;
   totalRevenue: number;
   averageOrderValue: number;
 }
@@ -251,7 +250,7 @@ export interface OrderStatsBySection {
     averageOrderValue: number;
   };
   paymentStatus: Record<PaymentStatus, number>;
-  fulfillmentStatus: Record<FulfillmentStatus, number>;
+  orderStatus: Record<OrderStatus, number>;
   bySection: Record<
     Section,
     {
@@ -328,7 +327,7 @@ export interface PreparedOrderData {
   pricing: CalculatedOrderPricing;
   shippingAddress?: CreateShippingAddressDto;
   paymentStatus: PaymentStatus;
-  fulfillmentStatus: FulfillmentStatus;
+  orderStatus: OrderStatus;
   notes?: string;
   tags: string[];
   paymentMethod?: string;
@@ -350,7 +349,7 @@ export interface OrderCsvRow {
   date: string;
   section: string;
   paymentStatus: string;
-  fulfillmentStatus: string;
+  orderStatus: string;
   itemsCount: number;
   total: number;
 }

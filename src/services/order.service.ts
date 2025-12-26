@@ -15,7 +15,7 @@ import {
   CalculatedOrderPricing,
   ValidatedOrderItem,
 } from '../types/order.types';
-import { PaymentStatus, FulfillmentStatus, Section } from '@prisma/client';
+import { PaymentStatus, OrderStatus, Section } from '@prisma/client';
 
 interface AuthenticatedCustomerContext {
   id: string;
@@ -323,24 +323,28 @@ export class OrderService {
   }
 
   /**
-   * Validate fulfillment status transition
+   * Validate order status transition for food delivery workflow
    */
-  private validateFulfillmentStatusTransition(
-    currentStatus: FulfillmentStatus,
-    newStatus: FulfillmentStatus
+  private validateOrderStatusTransition(
+    currentStatus: OrderStatus,
+    newStatus: OrderStatus
   ): void {
-    const allowedTransitions: Record<FulfillmentStatus, FulfillmentStatus[]> = {
-      UNFULFILLED: ['FULFILLED', 'PARTIAL', 'SCHEDULED'],
-      FULFILLED: ['UNFULFILLED'], // Can revert
-      PARTIAL: ['FULFILLED', 'UNFULFILLED'],
-      SCHEDULED: ['FULFILLED', 'UNFULFILLED', 'PARTIAL'],
+    const allowedTransitions: Record<OrderStatus, OrderStatus[]> = {
+      PENDING: ['CONFIRMED', 'CANCELLED'],
+      CONFIRMED: ['PREPARING', 'CANCELLED'],
+      PREPARING: ['READY', 'CANCELLED'],
+      READY: ['OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED'], // Can mark delivered for pickup orders
+      OUT_FOR_DELIVERY: ['DELIVERED', 'CANCELLED'],
+      DELIVERED: [], // Terminal state - cannot change
+      CANCELLED: [], // Terminal state - cannot change
     };
 
     const allowed = allowedTransitions[currentStatus];
 
     if (!allowed || !allowed.includes(newStatus)) {
       throw new ValidationError(
-        `Cannot change fulfillment status from ${currentStatus} to ${newStatus}`
+        `Cannot change order status from ${currentStatus} to ${newStatus}. ` +
+        `Allowed transitions: ${allowed.join(', ') || 'none'}`
       );
     }
   }
@@ -361,7 +365,7 @@ export class OrderService {
       date: order.orderDate,
       section: order.section,
       paymentStatus: order.paymentStatus,
-      fulfillmentStatus: order.fulfillmentStatus,
+      orderStatus: order.orderStatus,
       items: order.items?.map((item: any) => ({
         id: item.id,
         productId: item.productId,
@@ -489,7 +493,7 @@ export class OrderService {
             guestToken: !customerId ? `guest-${Date.now()}` : null,
             section: orderSection,
             paymentStatus: data.paymentStatus || PaymentStatus.PENDING,
-            fulfillmentStatus: data.fulfillmentStatus || FulfillmentStatus.UNFULFILLED,
+            orderStatus: data.orderStatus || OrderStatus.PENDING,
             subtotal: pricing.subtotal,
             tax: pricing.tax,
             discount: pricing.discount,
@@ -636,8 +640,8 @@ export class OrderService {
       where.paymentStatus = params.paymentStatus;
     }
 
-    if (params.fulfillmentStatus) {
-      where.fulfillmentStatus = params.fulfillmentStatus;
+    if (params.orderStatus) {
+      where.orderStatus = params.orderStatus;
     }
 
     if (params.customerId) {
@@ -714,10 +718,10 @@ export class OrderService {
       );
     }
 
-    if (data.fulfillmentStatus) {
-      this.validateFulfillmentStatusTransition(
-        existingOrder.fulfillmentStatus,
-        data.fulfillmentStatus
+    if (data.orderStatus) {
+      this.validateOrderStatusTransition(
+        existingOrder.orderStatus,
+        data.orderStatus
       );
     }
 
@@ -726,7 +730,7 @@ export class OrderService {
       where: { id: orderId },
       data: {
         paymentStatus: data.paymentStatus,
-        fulfillmentStatus: data.fulfillmentStatus,
+        orderStatus: data.orderStatus,
         notes: data.notes,
         tags: data.tags,
         paymentMethod: data.paymentMethod,
@@ -780,11 +784,11 @@ export class OrderService {
   }
 
   /**
-   * Update fulfillment status only
+   * Update order status only
    */
-  async updateFulfillmentStatus(
+  async updateOrderStatus(
     orderId: string,
-    newStatus: FulfillmentStatus
+    newStatus: OrderStatus
   ): Promise<OrderResponse> {
     const existingOrder = await prisma.order.findUnique({
       where: { id: orderId, deletedAt: null },
@@ -795,14 +799,14 @@ export class OrderService {
     }
 
     // Validate transition
-    this.validateFulfillmentStatusTransition(
-      existingOrder.fulfillmentStatus,
+    this.validateOrderStatusTransition(
+      existingOrder.orderStatus,
       newStatus
     );
 
     const updatedOrder = await prisma.order.update({
       where: { id: orderId },
-      data: { fulfillmentStatus: newStatus },
+      data: { orderStatus: newStatus },
       include: {
         items: true,
         shippingAddress: true,
@@ -810,7 +814,7 @@ export class OrderService {
     });
 
     logger.info(
-      `Fulfillment status updated for ${updatedOrder.orderNumber}: ${newStatus}`
+      `Order status updated for ${updatedOrder.orderNumber}: ${newStatus}`
     );
 
     return this.transformOrderToResponse(updatedOrder);
@@ -835,12 +839,10 @@ export class OrderService {
       );
     }
 
-    // Business rule: Cannot delete fulfilled orders
-    if (
-      order.fulfillmentStatus === FulfillmentStatus.FULFILLED
-    ) {
+    // Business rule: Cannot delete delivered orders
+    if (order.orderStatus === OrderStatus.DELIVERED) {
       throw new ValidationError(
-        'Cannot delete orders that have been shipped or delivered'
+        'Cannot delete orders that have been delivered'
       );
     }
 
@@ -948,7 +950,7 @@ export class OrderService {
       select: {
         total: true,
         paymentStatus: true,
-        fulfillmentStatus: true,
+        orderStatus: true,
         section: true,
       },
     });
@@ -970,16 +972,19 @@ export class OrderService {
       paymentStatus[order.paymentStatus]++;
     });
 
-    // Calculate fulfillment status breakdown
-    const fulfillmentStatus: Record<FulfillmentStatus, number> = {
-      UNFULFILLED: 0,
-      FULFILLED: 0,
-      PARTIAL: 0,
-      SCHEDULED: 0,
+    // Calculate order status breakdown
+    const orderStatus: Record<OrderStatus, number> = {
+      PENDING: 0,
+      CONFIRMED: 0,
+      PREPARING: 0,
+      READY: 0,
+      OUT_FOR_DELIVERY: 0,
+      DELIVERED: 0,
+      CANCELLED: 0,
     };
 
     orders.forEach((order) => {
-      fulfillmentStatus[order.fulfillmentStatus]++;
+      orderStatus[order.orderStatus]++;
     });
 
     // Calculate by section
@@ -1001,7 +1006,7 @@ export class OrderService {
         averageOrderValue: Math.round(averageOrderValue * 100) / 100,
       },
       paymentStatus,
-      fulfillmentStatus,
+      orderStatus,
       bySection,
     };
   }
@@ -1024,7 +1029,7 @@ export class OrderService {
       'Date',
       'Section',
       'Payment Status',
-      'Fulfillment Status',
+      'Order Status',
       'Items Count',
       'Total',
     ];
@@ -1037,7 +1042,7 @@ export class OrderService {
       order.date.toISOString().split('T')[0], // Date only
       order.section,
       order.paymentStatus,
-      order.fulfillmentStatus,
+      order.orderStatus,
       order.itemsCount.toString(),
       order.total.toFixed(2),
     ]);
